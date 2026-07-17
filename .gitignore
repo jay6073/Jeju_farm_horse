@@ -1,0 +1,18 @@
+# Python 자동 생성 컴파일 파일들
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 가상환경 (혹시 사용하신다면)
+.venv/
+venv/
+ENV/
+
+# 개발 툴 설정 파일들 (VS Code, PyCharm 등)
+.vscode/
+.idea/
+
+# 로컬 DB 및 로그 파일 (필요시)
+*.db
+*.log

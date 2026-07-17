@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from services import scraping_service as svc
 from services.scraping_service import ScrapingError
-from models.horse import breed_label
+from models.horse import get_breed_label
 
 
 # ---------------------------------------------------------------------------
@@ -27,12 +27,14 @@ from models.horse import breed_label
 # ---------------------------------------------------------------------------
 SAMPLE_HORSES = [
     {"마명": "닉스고", "마번": "0041819", "품종코드": "00100"},
-    {"마명": "산방미인 자마", "마번": "0060446", "품종코드": "00100"},
+    {"마명": "확인용 위수탁마", "마번": "0060446", "품종코드": "00100"},
+    # 여기에 본인이 실제로 아는 말을 1~2개 더 추가해서 테스트해보세요.
+    # {"마명": "...", "마번": "...", "품종코드": None},
 ]
 
 
 def try_known_code(마명: str, 마번: str, 품종코드: str) -> None:
-    print(f"\n[{마명} / 마번 {마번} / 품종코드 {품종코드}({breed_label(품종코드)})]")
+    print(f"\n[{마명} / 마번 {마번} / 품종코드 {품종코드}({get_breed_label(품종코드)})]")
     try:
         data = svc.get_horse_detail(마번, use_cache=False, hrs_gb_cd=품종코드)
     except ScrapingError as e:
@@ -61,7 +63,7 @@ def try_auto_detect(마명: str, 마번: str) -> None:
         print(f"  ❌ 자동탐지 실패: {e}")
         return
 
-    print(f"  ✅ 자동탐지 성공! 찾아낸 품종코드: {horse.품종코드} ({breed_label(horse.품종코드)})")
+    print(f"  ✅ 자동탐지 성공! 찾아낸 품종코드: {horse.품종코드} ({get_breed_label(horse.품종코드)})")
     basic = svc.extract_basic_info(data, hrs_gb_cd=horse.품종코드)
     print("  개체이력 기본정보:")
     for label, value in basic.items():

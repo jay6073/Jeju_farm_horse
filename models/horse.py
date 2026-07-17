@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import re
 from typing import Optional
 
 # 마종 옵션 (main_page, manage_page의 select 옵션과 동일하게 유지)
@@ -21,8 +22,13 @@ NON_NORMAL_STATUSES: list[str] = ["폐사", "위수탁종료", "매각", "기타
 ALL_STATUSES: list[str] = [STATUS_NORMAL] + NON_NORMAL_STATUSES
 
 # horsepia.com의 hrsGbCd(품종 구분코드). 목장 "마종"(용도 분류)과는 별개 축의 값이며,
-# 씨수말이든 위수탁마든 실제 품종에 따라 이 코드가 결정된다. 스크래핑 시 상세 페이지
-# URL의 hrsGbCd 파라미터로 그대로 사용해야 정확한 데이터를 받아온다.
+# 씨수말이든 위수탁마든 실제 품종에 따라 이 코드가 결정된다.
+#
+# ⚠️ 이 값은 우리가 추측/고정하지 않는다. 등록 시 horsepia에서 해당 말의 상세 페이지를
+# 직접 열어 URL의 hrsGbCd를 그대로 복사해 입력하는 것이 원칙이다 (등록 화면/엑셀 템플릿
+# 안내 문구 참고). 그래서 검증도 "알려진 코드 목록에 있는가"가 아니라 "5자리 숫자 형식인가"
+# 정도로만 하고, 아래 매핑은 화면에 사람이 읽기 좋은 이름을 보여주는 용도로만 쓴다.
+# 매핑에 없는 새 코드가 들어와도 등록/조회를 막지 않는다 (get_breed_label 참고).
 HORSE_BREED_CODES: dict[str, str] = {
     "00100": "더러브렛",
     "00200": "일반마",
@@ -31,16 +37,17 @@ HORSE_BREED_CODES: dict[str, str] = {
     "00310": "제주마(축진원)",
 }
 
+_BREED_CODE_PATTERN = re.compile(r"^\d{5}$")
 
-def breed_label(code: Optional[str]) -> str:
+
+def get_breed_label(code: Optional[str]) -> str:
     """
     화면 표시용. HORSE_BREED_CODES에 없는(아직 확인 못한) 코드가 들어와도
-    에러 없이 "코드값(확인필요)" 형태로 보여준다 — 등록 자체는 막지 않는다.
+    에러 없이 코드 자체를 보여준다 — 등록/조회 자체는 막지 않는다.
     """
     if not code:
         return "-"
-    known = HORSE_BREED_CODES.get(code)
-    return known if known else f"{code}(확인필요)"
+    return HORSE_BREED_CODES.get(code, f"{code}(확인필요)")
 
 
 def normalize_horse_number(raw: Optional[str]) -> Optional[str]:

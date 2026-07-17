@@ -52,13 +52,13 @@ def main():
     svc.clear_cache()
 
     # --- 파싱 성공 ---
-    with patch("services.scraping_service.requests.get", return_value=make_response(SAMPLE_HTML_OK)):
+    with patch("services.scraping_service._session.get", return_value=make_response(SAMPLE_HTML_OK)):
         data = svc.get_horse_detail("12345", use_cache=False)
         check("initData 파싱 성공: 마명 필드 확인", data["마명"] == "천리마")
         check("initData 파싱 성공: 경주성적 리스트 확인", data["경주성적"][0]["순위"] == 2)
 
     # --- initData 없는 경우 ScrapingError ---
-    with patch("services.scraping_service.requests.get", return_value=make_response(SAMPLE_HTML_NO_INITDATA)):
+    with patch("services.scraping_service._session.get", return_value=make_response(SAMPLE_HTML_NO_INITDATA)):
         try:
             svc.get_horse_detail("99999", use_cache=False)
             check("initData 없으면 ScrapingError 발생해야 함", False)
@@ -66,7 +66,7 @@ def main():
             check("initData 없을 때 ScrapingError 정상 발생", True)
 
     # --- 마번 없는 경우 즉시 실패 (네트워크 호출 없이) ---
-    with patch("services.scraping_service.requests.get") as mock_get:
+    with patch("services.scraping_service._session.get") as mock_get:
         try:
             svc.get_horse_detail("", use_cache=False)
             check("마번 없으면 ScrapingError 발생해야 함", False)
@@ -83,14 +83,14 @@ def main():
             raise requests.exceptions.ConnectionError("일시적 네트워크 오류")
         return make_response(SAMPLE_HTML_OK)
 
-    with patch("services.scraping_service.requests.get", side_effect=flaky_get), \
+    with patch("services.scraping_service._session.get", side_effect=flaky_get), \
          patch("services.scraping_service.time.sleep"):  # 테스트 속도를 위해 대기시간 스킵
         data = svc.get_horse_detail("55555", use_cache=False)
         check("재시도 끝에 성공적으로 데이터 획득", data["마명"] == "천리마")
         check("정확히 3번 시도함 (2번 실패 + 1번 성공)", call_count["n"] == 3)
 
     # --- 재시도 모두 실패 시 ScrapingError ---
-    with patch("services.scraping_service.requests.get",
+    with patch("services.scraping_service._session.get",
                side_effect=requests.exceptions.ConnectionError("계속 실패")), \
          patch("services.scraping_service.time.sleep"):
         try:
@@ -107,7 +107,7 @@ def main():
         call_log.append(1)
         return make_response(SAMPLE_HTML_OK)
 
-    with patch("services.scraping_service.requests.get", side_effect=counting_get):
+    with patch("services.scraping_service._session.get", side_effect=counting_get):
         svc.get_horse_detail("77777", use_cache=True)
         svc.get_horse_detail("77777", use_cache=True)  # 캐시로 인해 네트워크 호출 없어야 함
         check("동일 마번 재조회 시 캐시로 1회만 호출됨", len(call_log) == 1)
@@ -116,13 +116,13 @@ def main():
         check("use_cache=False면 캐시 무시하고 다시 호출됨", len(call_log) == 2)
 
     svc.clear_cache("0077777")
-    with patch("services.scraping_service.requests.get", side_effect=counting_get):
+    with patch("services.scraping_service._session.get", side_effect=counting_get):
         svc.get_horse_detail("77777", use_cache=True)
         check("캐시 초기화 후 다시 호출됨", len(call_log) == 3)
 
     # --- 마번 정규화가 캐시 키에도 적용되는지 ---
     svc.clear_cache()
-    with patch("services.scraping_service.requests.get", side_effect=counting_get):
+    with patch("services.scraping_service._session.get", side_effect=counting_get):
         before = len(call_log)
         svc.get_horse_detail("88888", use_cache=True)
         svc.get_horse_detail("0088888", use_cache=True)  # 정규화하면 동일한 키
@@ -146,7 +146,7 @@ def main():
         "\tgData = JSON.parse(initData);\n"
         "</script></html>"
     )
-    with patch("services.scraping_service.requests.get", return_value=make_response(MULTI_BLOCK_HTML)):
+    with patch("services.scraping_service._session.get", return_value=make_response(MULTI_BLOCK_HTML)):
         merged = svc.get_horse_detail("41819", use_cache=False)
         check("여러 initData 블록이 하나로 병합됨 (마체특징 쪽 필드)", merged["HrsChticInfo"]["hrno"] == "0041819")
         check("여러 initData 블록이 하나로 병합됨 (기본정보 쪽 필드)", merged["hrnmGrtDt"] == "2019-01-26")
@@ -172,7 +172,7 @@ def test_auto_detect():
     from repository.horse_repository import HorseRepository
     from models.horse import Horse
 
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test_auto.db"
         repo = HorseRepository(db_path)
 
@@ -207,7 +207,7 @@ def test_auto_detect():
             call_order.append(params["hrsGbCd"])
             return fake_get(url, params, timeout)
 
-        with patch("services.scraping_service.requests.get", side_effect=tracking_get):
+        with patch("services.scraping_service._session.get", side_effect=tracking_get):
             data = svc.get_horse_detail_auto(horse, repo, use_cache=False)
             check("자동탐지: 올바른 코드(00300)에서 데이터 획득", data["spcsNm"] == "제주마")
             check("자동탐지: 알려진 코드 순서대로(00100→00200→00210→00300) 시도함",
@@ -219,14 +219,14 @@ def test_auto_detect():
 
         # 두 번째 조회부터는 이미 품종코드가 있으니 바로 그 코드로만 요청해야 함
         call_order.clear()
-        with patch("services.scraping_service.requests.get", side_effect=tracking_get):
+        with patch("services.scraping_service._session.get", side_effect=tracking_get):
             svc.get_horse_detail_auto(horse, repo, use_cache=False)
             check("품종코드 확보 후 재조회 시 추측 없이 바로 1회만 요청", call_order == ["00300"])
 
         # 모든 코드가 실패하는 경우
         horse2 = Horse(마명="미확인말", 마종="기타마", 마번="88888")
         horse2.id = repo.insert(horse2)
-        with patch("services.scraping_service.requests.get", return_value=make_response(EMPTY_HTML)):
+        with patch("services.scraping_service._session.get", return_value=make_response(EMPTY_HTML)):
             try:
                 svc.get_horse_detail_auto(horse2, repo, use_cache=False)
                 check("모든 코드 실패 시 ScrapingError 발생해야 함", False)

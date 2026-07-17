@@ -46,6 +46,25 @@ MAX_RETRIES = 3
 RETRY_BASE_DELAY_SEC = 2
 REQUEST_DELAY_RANGE = (0.5, 1.5)  # 요청 사이 랜덤 딜레이
 
+# requests 기본 User-Agent("python-requests/x.x")는 봇으로 인식돼 서버가
+# 응답 없이 연결을 바로 끊어버리는 경우가 많다(Jay님이 실제로 겪은 증상).
+# 브라우저처럼 보이는 헤더를 명시적으로 붙여준다.
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://www.horsepia.com/",
+    "Connection": "keep-alive",
+}
+
+# 세션을 재사용하면 매 요청마다 TLS/TCP를 새로 맺지 않아도 되고,
+# 쿠키(있다면)도 자동으로 유지된다.
+_session = requests.Session()
+_session.headers.update(_BROWSER_HEADERS)
+
 
 class ScrapingError(Exception):
     """
@@ -189,7 +208,7 @@ def _fetch_with_retry(마번: str, tab: str, hrs_gb_cd: str, max_retries: int = 
 
     for attempt in range(1, max_retries + 1):
         try:
-            response = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+            response = _session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             return _parse_init_data(response.text, 마번)
 
