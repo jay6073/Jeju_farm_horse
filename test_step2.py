@@ -13,7 +13,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import requests
+from curl_cffi.requests import exceptions as requests_exceptions
 from services import scraping_service as svc
 
 
@@ -29,7 +29,7 @@ def make_response(text="", status_ok=True):
     if status_ok:
         resp.raise_for_status = MagicMock()
     else:
-        resp.raise_for_status = MagicMock(side_effect=requests.exceptions.HTTPError("500"))
+        resp.raise_for_status = MagicMock(side_effect=requests_exceptions.HTTPError("500"))
     return resp
 
 
@@ -46,6 +46,11 @@ SAMPLE_HTML_OK = (
 )
 
 SAMPLE_HTML_NO_INITDATA = "<html><body>데이터 없음</body></html>"
+
+# 기본값: selectHorseBaseInfo.do(POST)가 빈 JSON을 반환한다고 가정.
+# 기존 GET 관련 테스트들이 POST 병합 때문에 깨지지 않도록, __main__에서 전역으로
+# 이 기본 응답을 깔아두고, POST 자체를 검증하는 테스트에서만 개별적으로 덮어쓴다.
+_DEFAULT_POST_RESPONSE = make_response("{}")
 
 
 def main():
@@ -80,7 +85,7 @@ def main():
     def flaky_get(*args, **kwargs):
         call_count["n"] += 1
         if call_count["n"] < 3:
-            raise requests.exceptions.ConnectionError("일시적 네트워크 오류")
+            raise requests_exceptions.ConnectionError("일시적 네트워크 오류")
         return make_response(SAMPLE_HTML_OK)
 
     with patch("services.scraping_service._session.get", side_effect=flaky_get), \
@@ -91,7 +96,7 @@ def main():
 
     # --- 재시도 모두 실패 시 ScrapingError ---
     with patch("services.scraping_service._session.get",
-               side_effect=requests.exceptions.ConnectionError("계속 실패")), \
+               side_effect=requests_exceptions.ConnectionError("계속 실패")), \
          patch("services.scraping_service.time.sleep"):
         try:
             svc.get_horse_detail("66666", use_cache=False)
@@ -160,6 +165,76 @@ def main():
         check("hrsGbCd=00100일 때 마명부여일 포함됨", basic_100["마명부여일"] == "2019-01-26")
         check("hrsGbCd=00100일 때는 퇴사일 필드 자체가 없음", "퇴사일" not in basic_100)
 
+    # --- 실제 응답 구조 재현: 개체이력 기본정보가 JejuHrsInfo 안에 중첩된 경우 ---
+    svc.clear_cache()
+    REAL_STRUCTURE_HTML = (
+        "<html><script>\n"
+        "\tvar initData = fnReplaceAll(fnReplaceAll('"
+        '{&#034;JejuHrsInfo&#034;:{&#034;hrnmGrtDt&#034;:&#034;2019-01-26&#034;,'
+        '&#034;foalgDt&#034;:&#034;2016-01-29&#034;,&#034;ppseNm&#034;:&#034;번식용&#034;,'
+        '&#034;gndrGbNm&#034;:&#034;수&#034;,&#034;horseCtcolNm&#034;:&#034;회색&#034;,'
+        '&#034;spcsNm&#034;:&#034;더러브렛&#034;},'
+        '&#034;HrsChticInfo&#034;:{&#034;hrno&#034;:&#034;0041819&#034;}}'
+        "', \"&#034;\", \"\\\"\"), \"&#039;\", \"'\");\n"
+        "\tgData = JSON.parse(initData);\n"
+        "</script></html>"
+    )
+    with patch("services.scraping_service._session.get", return_value=make_response(REAL_STRUCTURE_HTML)):
+        real_data = svc.get_horse_detail("41819", use_cache=False)
+        check("실제 구조: 최상위 키는 JejuHrsInfo/HrsChticInfo 뿐임", set(real_data.keys()) == {"JejuHrsInfo", "HrsChticInfo"})
+
+        real_basic = svc.extract_basic_info(real_data, hrs_gb_cd="00100")
+        check("JejuHrsInfo 안에 중첩된 마명부여일도 정상 추출됨", real_basic["마명부여일"] == "2019-01-26")
+        check("JejuHrsInfo 안에 중첩된 출생일도 정상 추출됨", real_basic["출생일"] == "2016-01-29")
+        check("JejuHrsInfo 안에 중첩된 품종(spcsNm)도 정상 추출됨은 아니고 매핑 라벨 확인", real_basic["품종"] == "더러브렛")
+
+    print("\n실제 응답 구조(중첩 필드) 검증 통과 ✅")
+
+    # --- 실제 발견된 구조: GET에는 개체이력 기본정보가 없고, 별도 POST(AJAX)로 받아와야 함 ---
+    svc.clear_cache()
+    GET_ONLY_CHTIC_HTML = (
+        "<html><script>\n"
+        "\tvar initData = fnReplaceAll(fnReplaceAll('"
+        '{&#034;JejuHrsInfo&#034;:null,&#034;HrsChticInfo&#034;:{&#034;hrno&#034;:&#034;0041819&#034;}}'
+        "', \"&#034;\", \"\\\"\"), \"&#039;\", \"'\");\n"
+        "\tgData = JSON.parse(initData);\n"
+        "</script></html>"
+    )
+    # selectHorseBaseInfo.do는 실제로 {"CertList": [...], "BaseInfo": {...}} 구조로 온다
+    AJAX_BASIC_INFO_JSON = (
+        '{"CertList":[],"BaseInfo":{"hrnmGrtDt":"2019-01-26","foalgDt":"2016-01-29 (10세)",'
+        '"ppseNm":"번식용","gndrGbNm":"수 ","horseCtcolNm":"회색","spcsNm":"더러브렛"}}'
+    )
+    with patch("services.scraping_service._session.get", return_value=make_response(GET_ONLY_CHTIC_HTML)), \
+         patch("services.scraping_service._session.post", return_value=make_response(AJAX_BASIC_INFO_JSON)):
+        combined = svc.get_horse_detail("41819", use_cache=False)
+        check("GET에서 온 HrsChticInfo가 유지됨", combined["HrsChticInfo"]["hrno"] == "0041819")
+        check("POST(AJAX)에서 온 개체이력 기본정보가 병합됨", combined["hrnmGrtDt"] == "2019-01-26")
+
+        combined_basic = svc.extract_basic_info(combined, hrs_gb_cd="00100")
+        check("GET+POST 병합 결과에서 마명부여일 정상 추출", combined_basic["마명부여일"] == "2019-01-26")
+        check("GET+POST 병합 결과에서 품종 정상 추출", combined_basic["품종"] == "더러브렛")
+
+    # --- POST 응답이 만약 detail.do처럼 엔티티 인코딩되어 있어도 폴백으로 파싱되는지 ---
+    svc.clear_cache()
+    AJAX_BASIC_INFO_ENCODED = (
+        '{&#034;hrnmGrtDt&#034;:&#034;2019-01-26&#034;}'
+    )
+    with patch("services.scraping_service._session.get", return_value=make_response(GET_ONLY_CHTIC_HTML)), \
+         patch("services.scraping_service._session.post", return_value=make_response(AJAX_BASIC_INFO_ENCODED)):
+        combined2 = svc.get_horse_detail("41819", use_cache=False)
+        check("POST 응답이 엔티티 인코딩이어도 폴백으로 정상 파싱됨", combined2["hrnmGrtDt"] == "2019-01-26")
+
+    # --- POST(AJAX)가 실패해도(빈 응답 등) GET 데이터는 살아남아야 함 ---
+    svc.clear_cache()
+    with patch("services.scraping_service._session.get", return_value=make_response(GET_ONLY_CHTIC_HTML)), \
+         patch("services.scraping_service._session.post", return_value=make_response("")):
+        combined3 = svc.get_horse_detail("41819", use_cache=False)
+        check("POST 응답이 비어도 GET에서 온 HrsChticInfo는 유지됨", combined3["HrsChticInfo"]["hrno"] == "0041819")
+        check("POST 응답이 비면 개체이력 기본정보 필드는 없음", "hrnmGrtDt" not in combined3)
+
+    print("\nGET+POST 병합 구조 검증 통과 ✅")
+
     print("\n모든 검증 통과 ✅ (단, 실제 URL/응답 구조는 HORSEPIA_DETAIL_URL 교체 후 별도 실네트워크 확인 필요)")
 
 
@@ -207,7 +282,8 @@ def test_auto_detect():
             call_order.append(params["hrsGbCd"])
             return fake_get(url, params, timeout)
 
-        with patch("services.scraping_service._session.get", side_effect=tracking_get):
+        with patch("services.scraping_service._session.get", side_effect=tracking_get), \
+             patch("services.scraping_service.time.sleep"):
             data = svc.get_horse_detail_auto(horse, repo, use_cache=False)
             check("자동탐지: 올바른 코드(00300)에서 데이터 획득", data["spcsNm"] == "제주마")
             check("자동탐지: 알려진 코드 순서대로(00100→00200→00210→00300) 시도함",
@@ -219,14 +295,16 @@ def test_auto_detect():
 
         # 두 번째 조회부터는 이미 품종코드가 있으니 바로 그 코드로만 요청해야 함
         call_order.clear()
-        with patch("services.scraping_service._session.get", side_effect=tracking_get):
+        with patch("services.scraping_service._session.get", side_effect=tracking_get), \
+             patch("services.scraping_service.time.sleep"):
             svc.get_horse_detail_auto(horse, repo, use_cache=False)
             check("품종코드 확보 후 재조회 시 추측 없이 바로 1회만 요청", call_order == ["00300"])
 
         # 모든 코드가 실패하는 경우
         horse2 = Horse(마명="미확인말", 마종="기타마", 마번="88888")
         horse2.id = repo.insert(horse2)
-        with patch("services.scraping_service._session.get", return_value=make_response(EMPTY_HTML)):
+        with patch("services.scraping_service._session.get", return_value=make_response(EMPTY_HTML)), \
+             patch("services.scraping_service.time.sleep"):
             try:
                 svc.get_horse_detail_auto(horse2, repo, use_cache=False)
                 check("모든 코드 실패 시 ScrapingError 발생해야 함", False)
@@ -239,5 +317,14 @@ def test_auto_detect():
 
 
 if __name__ == "__main__":
-    main()
-    test_auto_detect()
+    # REQUEST_DELAY_RANGE를 3~7초로 늘린 뒤로 테스트가 실제로 그만큼 느려지므로,
+    # 테스트 전체를 time.sleep mock으로 감싸 실제 대기 없이 로직만 빠르게 검증한다.
+    #
+    # 또한 GET+POST 2단계 구조로 바뀌면서, GET만 mock한 기존 테스트들도 내부적으로
+    # _session.post를 호출하게 됐다. 여기서 기본값(빈 JSON)으로 전역 mock을 깔아두면
+    # 개별 테스트에서 _session.post를 따로 patch하지 않는 한 이 기본값이 쓰인다
+    # (개별 with 블록 안에서 _session.post를 다시 patch하면 그쪽이 우선 적용됨).
+    with patch("services.scraping_service.time.sleep"), \
+         patch("services.scraping_service._session.post", return_value=_DEFAULT_POST_RESPONSE):
+        main()
+        test_auto_detect()

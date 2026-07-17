@@ -26,7 +26,8 @@ import re
 import time
 from typing import Optional
 
-import requests
+from curl_cffi import requests as cffi_requests
+from curl_cffi.requests import exceptions as cffi_exceptions
 
 from models.horse import Horse, HORSE_BREED_CODES, normalize_horse_number
 
@@ -43,26 +44,24 @@ _INIT_DATA_PATTERN = re.compile(
 
 DEFAULT_TIMEOUT = (5, 30)  # (연결, 읽기)
 MAX_RETRIES = 3
-RETRY_BASE_DELAY_SEC = 2
-REQUEST_DELAY_RANGE = (0.5, 1.5)  # 요청 사이 랜덤 딜레이
+RETRY_BASE_DELAY_SEC = 5
+# ⚠️ Jay님이 실제로 겪은 "짧은 시간에 반복 요청 → PC가 horsepia.com에 일시적으로
+# 접속 자체가 막힘" 증상 때문에 요청 사이 딜레이를 늘렸다.
+# 아래 값은 실제 네트워크로 검증 완료된 값이다 (2026-07 기준, 1960100 PC).
+REQUEST_DELAY_RANGE = (2.0, 4.0)  # 요청 사이 랜덤 딜레이
 
-# requests 기본 User-Agent("python-requests/x.x")는 봇으로 인식돼 서버가
-# 응답 없이 연결을 바로 끊어버리는 경우가 많다(Jay님이 실제로 겪은 증상).
-# 브라우저처럼 보이는 헤더를 명시적으로 붙여준다.
+# ⚠️ 중요: 일반 requests 라이브러리는 헤더를 브라우저처럼 꾸며도, TLS 접속 방식(암호화
+# 순서 등 이른바 "TLS 지문") 자체가 파이썬임을 드러낸다. horsepia.com 같은 공공기관
+# 계열 사이트는 WAF가 이 TLS 지문만 보고 응답 없이 연결을 끊어버리는 경우가 있다
+# (Jay님이 실제로 겪은 RemoteDisconnected 증상). 그래서 curl_cffi로 실제 Chrome과
+# 동일한 TLS 지문을 흉내내는 세션을 쓴다. (설치: pip install curl_cffi)
 _BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     "Referer": "https://www.horsepia.com/",
-    "Connection": "keep-alive",
 }
 
-# 세션을 재사용하면 매 요청마다 TLS/TCP를 새로 맺지 않아도 되고,
-# 쿠키(있다면)도 자동으로 유지된다.
-_session = requests.Session()
+_session = cffi_requests.Session(impersonate="chrome124")
 _session.headers.update(_BROWSER_HEADERS)
 
 
@@ -116,7 +115,11 @@ def get_horse_detail_auto(
         return get_horse_detail_for(horse, use_cache=use_cache, tab=tab)
 
     last_error: Optional[Exception] = None
-    for code in HORSE_BREED_CODES:
+    for i, code in enumerate(HORSE_BREED_CODES):
+        if i > 0:
+            # 코드 후보를 바꿔가며 연속으로 두드리면 방화벽 이상행위 탐지에 걸릴 수 있어
+            # 요청 사이에도 딜레이를 둔다.
+            time.sleep(random.uniform(*REQUEST_DELAY_RANGE))
         try:
             data = get_horse_detail(horse.마번, use_cache=use_cache, tab=tab, hrs_gb_cd=code)
         except ScrapingError as e:
@@ -201,21 +204,56 @@ def _fetch_with_retry(마번: str, tab: str, hrs_gb_cd: str, max_retries: int = 
     """
     실패 시 지수 백오프로 재시도한다. 최종 실패하면 ScrapingError를 던진다.
     (initData가 아예 없는 경우, 즉 파싱 실패는 재시도해도 결과가 같으므로 즉시 실패 처리한다.)
+
+    2단계로 요청한다 (실제 브라우저 Network 탭으로 확인된 구조):
+      1) GET detail.do — 페이지를 정상 로딩해 세션 쿠키(WMONID, PAAP_JSESSIONID)를 확보하고,
+         HrsChticInfo(마체특징) 등 페이지에 정적으로 박힌 initData를 얻는다.
+      2) POST selectHorseBaseInfo.do — "개체이력 기본정보"(hrnmGrtDt, foalgDt 등)는 정적
+         HTML에 없고 이 AJAX 엔드포인트로 별도 로드된다. 1)에서 받은 세션 쿠키를 그대로
+         들고(같은 _session 사용) Referer를 detail.do URL로 지정해 호출해야 한다.
     """
-    url = HORSEPIA_BASE_URL.format(tab=tab)
+    detail_url = HORSEPIA_BASE_URL.format(tab=tab)
     params = {"hrNo": 마번, "hrsGbCd": hrs_gb_cd, "eqsthrConvYn": "N"}
     last_error: Optional[Exception] = None
 
     for attempt in range(1, max_retries + 1):
         try:
-            response = _session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
-            response.raise_for_status()
-            return _parse_init_data(response.text, 마번)
+            # 1) 페이지 GET — 세션 확보 + 정적 initData(HrsChticInfo 등) 획득
+            page_response = _session.get(detail_url, params=params, timeout=DEFAULT_TIMEOUT)
+            page_response.raise_for_status()
+            merged = _parse_init_data(page_response.text, 마번)
+
+            # 2) 개체이력 기본정보 AJAX POST — 1)의 세션(쿠키)을 그대로 사용
+            basic_info_url = f"https://www.horsepia.com/hp/pa/hh/{tab}/selectHorseBaseInfo.do"
+            ajax_response = _session.post(
+                basic_info_url,
+                data={"hrNo": 마번},
+                headers={
+                    "Referer": str(page_response.url),
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                timeout=DEFAULT_TIMEOUT,
+            )
+            ajax_response.raise_for_status()
+            basic_info = _parse_basic_info_response(ajax_response.text, 마번)
+            if isinstance(basic_info, dict):
+                # 실제 응답은 {"CertList": [...], "BaseInfo": {실제 필드들}} 구조로
+                # 한 겹 더 감싸져 있다. BaseInfo 안쪽을 꺼내 최상위로 병합한다.
+                base_info = basic_info.get("BaseInfo")
+                if isinstance(base_info, dict):
+                    merged.update(base_info)
+                # CertList 등 BaseInfo 이외의 최상위 키도 혹시 몰라 보존해둔다
+                # (이미 있는 키는 덮어쓰지 않음).
+                for k, v in basic_info.items():
+                    if k != "BaseInfo":
+                        merged.setdefault(k, v)
+
+            return merged
 
         except (
-            requests.exceptions.Timeout,
-            requests.exceptions.ConnectionError,
-            requests.exceptions.HTTPError,
+            cffi_exceptions.Timeout,
+            cffi_exceptions.ConnectionError,
+            cffi_exceptions.HTTPError,
         ) as e:
             last_error = e
             if attempt < max_retries:
@@ -227,6 +265,31 @@ def _fetch_with_retry(마번: str, tab: str, hrs_gb_cd: str, max_retries: int = 
     raise ScrapingError(
         f"마번 {마번} 조회에 {max_retries}회 재시도 후에도 실패했습니다: {last_error}"
     )
+
+
+def _parse_basic_info_response(body: str, 마번: str) -> Optional[dict]:
+    """
+    selectHorseBaseInfo.do(AJAX) 응답을 파싱한다.
+    Content-Type이 application/json으로 확인됐으므로 우선 순수 JSON으로 시도하고,
+    혹시 이 엔드포인트도 detail.do 페이지처럼 HTML 엔티티로 인코딩되어 있을 경우를
+    대비해 동일한 치환(&#034;→", &#039;→')을 적용한 뒤 재시도하는 폴백을 둔다.
+    """
+    body = body.strip()
+    if not body:
+        return None
+
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        decoded = body.replace("&#034;", '"').replace("&#039;", "'")
+        return json.loads(decoded)
+    except json.JSONDecodeError:
+        # 개체이력 기본정보 없이도(HrsChticInfo 등) 나머지는 살리기 위해
+        # 여기서는 조용히 실패 처리한다 (전체 조회를 막지 않음).
+        return None
 
 
 def _parse_init_data(html: str, 마번: str) -> dict:
@@ -313,18 +376,45 @@ _CONDITIONAL_FIELDS: dict[str, set[str]] = {
 }
 
 
+def _flatten_for_lookup(gData: dict) -> dict:
+    """
+    gData 최상위와, JejuHrsInfo/HrsChticInfo 같은 하위 객체 안의 필드를
+    합쳐서 하나의 평평한(flat) dict로 만든다.
+
+    실제 응답을 보니 hrnmGrtDt, foalgDt 같은 "개체이력 기본정보" 필드가
+    최상위가 아니라 JejuHrsInfo 안에 중첩되어 있는 것으로 확인됐다.
+    최상위에 이미 있는 키는 덮어쓰지 않는다(최상위 우선).
+    """
+    flat: dict = dict(gData)
+    for nested_key in ("JejuHrsInfo", "HrsChticInfo"):
+        nested = gData.get(nested_key)
+        if isinstance(nested, dict):
+            for k, v in nested.items():
+                flat.setdefault(k, v)
+    return flat
+
+
 def extract_basic_info(gData: dict, hrs_gb_cd: str = DEFAULT_HRS_GB_CD) -> dict[str, str]:
     """
     get_horse_detail()로 얻은 원본 dict(gData)에서 "개체이력 기본정보"에 해당하는
     필드만 한글 라벨로 추출한다. hrsGbCd 조건에 안 맞는 필드는 결과에서 제외한다.
     값이 없으면 '-'로 채운다 (horsepia 표기 관행과 동일).
+
+    필드가 gData 최상위에 있든, JejuHrsInfo 같은 하위 객체 안에 중첩돼 있든
+    상관없이 찾아낸다 (_flatten_for_lookup 참고).
     """
     result: dict[str, str] = {}
+    flat = _flatten_for_lookup(gData)
+
+    # 혹시 "00100(더러브렛)"처럼 한글이 붙어 들어오면 앞의 숫자 5자리만 잘라낸다.
+    clean_gb_cd = str(hrs_gb_cd).split("(")[0].strip() if hrs_gb_cd else DEFAULT_HRS_GB_CD
+
     for key, label in _BASIC_INFO_FIELD_MAP.items():
         allowed_codes = _CONDITIONAL_FIELDS.get(key)
-        if allowed_codes is not None and hrs_gb_cd not in allowed_codes:
+        if allowed_codes is not None and clean_gb_cd not in allowed_codes:
             continue
-        value = gData.get(key)
+
+        value = flat.get(key)
         result[label] = value if value not in (None, "") else "-"
     return result
 # main_page의 온디맨드 단건 조회에는 필요 없고, 필요 시 별도 스크립트에서

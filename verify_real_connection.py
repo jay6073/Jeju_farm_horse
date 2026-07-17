@@ -11,6 +11,7 @@ horsepia.com 실제 연동 확인용 스크립트 (Jeju-farm_horse 프로젝트)
    Claude 샌드박스 환경은 외부 네트워크가 제한돼 있어 여기서는 실행할 수 없고,
    Jay님 로컬 컴퓨터(또는 실제 네트워크가 열린 서버)에서 돌려야 한다.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -42,6 +43,9 @@ def try_known_code(마명: str, 마번: str, 품종코드: str) -> None:
         return
 
     print("  ✅ 응답 수신 성공. 최상위 키:", list(data.keys()))
+    print("  --- 원본 데이터 전체 (진단용) ---")
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+    print("  --- 원본 데이터 끝 ---")
     basic = svc.extract_basic_info(data, hrs_gb_cd=품종코드)
     print("  개체이력 기본정보:")
     for label, value in basic.items():
