@@ -6,14 +6,17 @@ from __future__ import annotations
 
 from nicegui import ui
 
+from ui.theme import apply_global_theme
+
 _PAGES = [
     ("/main", "조회"),
     ("/manage", "관리"),
-    # dashboard_page가 만들어지면 ("/dashboard", "대시보드") 추가
+    ("/dashboard", "대시보드"),
 ]
 
 
 def render_nav(active_path: str) -> None:
+    apply_global_theme()
     with ui.row().classes("w-full gap-6 mb-2 border-b border-gray-200 pb-2"):
         for path, label in _PAGES:
             classes = "text-sm no-underline"

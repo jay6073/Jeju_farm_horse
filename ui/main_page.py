@@ -19,13 +19,14 @@ from repository.horse_repository import HorseRepository
 from services import scraping_service
 from services.scraping_service import ScrapingError
 from ui.nav import render_nav
+from ui.theme import CARD_CLASSES
 
 _repo = HorseRepository()
 
 
 @ui.page("/main")
 async def main_page(horse_id: Optional[int] = None) -> None:
-    with ui.column().classes("w-full max-w-2xl mx-auto p-6 gap-4"):
+    with ui.column().classes("w-full max-w-2xl mx-auto p-6 gap-6"):
         render_nav("/main")
         ui.label("보유마 조회").classes("text-xl font-medium")
 
@@ -66,7 +67,7 @@ async def main_page(horse_id: Optional[int] = None) -> None:
         def render_horse_card(horse: Horse, basic_info: dict[str, str]) -> None:
             result_container.clear()
             with result_container:
-                with ui.card().classes("w-full"):
+                with ui.card().classes(CARD_CLASSES + " p-4"):
                     with ui.row().classes("items-center gap-2 mb-2"):
                         ui.icon("pets").classes("text-primary")
                         ui.label(horse.마명).classes("text-lg font-medium")

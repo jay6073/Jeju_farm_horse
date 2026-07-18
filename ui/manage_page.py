@@ -17,6 +17,7 @@ from repository.horse_repository import HorseRepository
 from services import import_service
 from services.import_service import ImportValidationError
 from ui.nav import render_nav
+from ui.theme import CARD_CLASSES, status_badge
 
 _repo = HorseRepository()
 
@@ -103,7 +104,7 @@ def _build_status_change_section() -> None:
                         "text-gray-400 text-sm"
                     )
                     return
-                with ui.card().classes("w-full"):
+                with ui.card().classes(CARD_CLASSES + " p-4"):
                     for horse in horses:
                         with ui.row().classes("items-center gap-3 w-full"):
 
@@ -115,13 +116,14 @@ def _build_status_change_section() -> None:
 
                             ui.checkbox(on_change=on_check)
                             ui.label(horse.마명).classes("flex-1")
-                            status_text = horse.상태
+                            status_badge(horse.상태)
                             if horse.상태 != "정상" and horse.상태발생일자:
-                                status_text += f" · {horse.상태발생일자}"
-                            ui.label(status_text).classes("text-xs text-gray-500")
+                                ui.label(horse.상태발생일자).classes(
+                                    "text-xs text-gray-400"
+                                )
 
             with form_container:
-                with ui.card().classes("w-full"):
+                with ui.card().classes(CARD_CLASSES + " p-4"):
                     ui.label("선택한 말들의 보유상태 변경").classes(
                         "text-sm text-gray-500 mb-2"
                     )
@@ -204,7 +206,7 @@ def _build_import_section() -> None:
             parsed_rows.extend(rows)
 
             with preview_container:
-                with ui.card().classes("w-full"):
+                with ui.card().classes(CARD_CLASSES + " p-4"):
                     for r in rows:
                         with ui.row().classes(
                             "items-center gap-3 w-full text-sm py-1 border-b border-gray-100"
