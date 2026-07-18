@@ -18,6 +18,7 @@ from models.horse import HORSE_SPECIES, Horse
 from repository.horse_repository import HorseRepository
 from services import scraping_service
 from services.scraping_service import ScrapingError
+from ui.nav import render_nav
 
 _repo = HorseRepository()
 
@@ -25,6 +26,7 @@ _repo = HorseRepository()
 @ui.page("/main")
 async def main_page(horse_id: Optional[int] = None) -> None:
     with ui.column().classes("w-full max-w-2xl mx-auto p-6 gap-4"):
+        render_nav("/main")
         ui.label("보유마 조회").classes("text-xl font-medium")
 
         with ui.row().classes("w-full gap-3"):

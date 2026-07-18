@@ -1,11 +1,12 @@
 """
 NiceGUI 앱 엔트리포인트.
-지금은 3단계(조회 화면) 검증용으로 main_page만 등록한다.
-manage_page, dashboard_page가 만들어지면 여기에 같이 등록하고 네비게이션을 추가한다.
+현재 등록된 화면: main_page(조회), manage_page(관리).
+dashboard_page(5단계)가 만들어지면 여기에 import 추가 + ui/nav.py의 _PAGES에도 등록한다.
 """
 from nicegui import ui
 
 from ui import main_page  # noqa: F401  (@ui.page 데코레이터 등록을 위한 import)
+from ui import manage_page  # noqa: F401
 
 
 @ui.page("/")
