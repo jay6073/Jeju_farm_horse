@@ -17,4 +17,4 @@ def index() -> None:
 
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title="Jeju_farm_horse", reload=False)
+    ui.run(title="Jeju_farm_horse", host="0.0.0.0", port=8080, reload=False)
