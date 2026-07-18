@@ -360,7 +360,14 @@ _BASIC_INFO_FIELD_MAP: dict[str, str] = {
     "iptCtryNm": "수입국",
     "ctfIsueDt": "패스포트",
     "studbook": "혈통서",
+    "sireHrnm": "부마명",
+    "damHrnm": "모마명",
+    "rchrRegDt": "경주마등록일",
+    "rchrRegCnclDt": "경주마취소일",
+    "bfHrno": "이전마번",
 }
+# 참고: jhrbldRegNo/sireJhrbldRegNo/damJhrbldRegNo(혈통번호류)는 hrsGbCd=00100
+# 실제 응답 전체를 확인한 결과 존재하지 않음 — 00300(제주마) 전용 필드로 확정.
 
 # hrsGbCd별 조건부 필드 (JS 분기 그대로). 이 안에 없는 필드는 hrsGbCd 무관하게 항상 표시.
 _CONDITIONAL_FIELDS: dict[str, set[str]] = {
@@ -373,6 +380,8 @@ _CONDITIONAL_FIELDS: dict[str, set[str]] = {
     "ctfIsueDt": {"00100", "00200"},
     "studbook": {"00100", "00200"},
     "stallRsntDt": {"00300"},
+    "rchrRegDt": {"00100"},
+    "rchrRegCnclDt": {"00100"},
 }
 
 
