@@ -41,3 +41,12 @@ def status_badge(status: str) -> None:
     """상태값에 맞는 색의 pill 뱃지 하나를 렌더링한다."""
     style = _STATUS_BADGE_STYLE.get(status, "bg-gray-200 text-gray-600")
     ui.label(status).classes(f"text-xs px-2 py-0.5 rounded-full {style} inline-block")
+
+
+def empty_state(message: str, icon: str = "info") -> None:
+    """빈 상태를 아이콘 + 문구로 통일된 스타일로 보여준다."""
+    with ui.column().classes(
+        "w-full items-center gap-2 py-8 text-gray-400 bg-gray-50 rounded-lg"
+    ):
+        ui.icon(icon).classes("text-3xl")
+        ui.label(message).classes("text-sm")

@@ -17,7 +17,7 @@ from repository.horse_repository import HorseRepository
 from services import import_service
 from services.import_service import ImportValidationError
 from ui.nav import render_nav
-from ui.theme import CARD_CLASSES, status_badge
+from ui.theme import CARD_CLASSES, empty_state, status_badge
 
 _repo = HorseRepository()
 
@@ -100,9 +100,7 @@ def _build_status_change_section() -> None:
             horses = _repo.get_all_by_species(species)
             with list_container:
                 if not horses:
-                    ui.label(f"{species}에 해당하는 보유마가 없습니다.").classes(
-                        "text-gray-400 text-sm"
-                    )
+                    empty_state(f"{species}에 해당하는 보유마가 없습니다", icon="info")
                     return
                 with ui.card().classes(CARD_CLASSES + " p-4"):
                     for horse in horses:

@@ -13,7 +13,7 @@ from models.horse import HORSE_SPECIES
 from repository.horse_repository import HorseRepository
 from services import dashboard_service
 from ui.nav import render_nav
-from ui.theme import CARD_CLASSES, status_badge
+from ui.theme import CARD_CLASSES, empty_state, status_badge
 
 _repo = HorseRepository()
 
@@ -47,9 +47,7 @@ def dashboard_page() -> None:
             ]
             with list_container:
                 if not filtered:
-                    ui.label("조건에 맞는 보유마가 없습니다.").classes(
-                        "text-gray-400 text-sm"
-                    )
+                    empty_state("조건에 맞는 보유마가 없습니다", icon="search_off")
                     return
                 with ui.card().classes(CARD_CLASSES + " p-4"):
                     with ui.row().classes(
@@ -62,7 +60,8 @@ def dashboard_page() -> None:
                         ui.label("상태").classes("w-44")
                     for h in filtered:
                         with ui.row().classes(
-                            "w-full items-center text-sm py-1 border-b border-gray-100"
+                            "w-full items-center text-sm py-1.5 px-1 -mx-1 rounded "
+                            "border-b border-gray-100 transition-colors hover:bg-gray-50"
                         ):
                             ui.label(h.마번 or "-").classes("w-28 text-gray-500")
                             ui.link(h.마명, f"/main?horse_id={h.id}").classes(

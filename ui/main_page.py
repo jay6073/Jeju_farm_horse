@@ -16,7 +16,7 @@ from nicegui import run, ui
 
 from models.horse import HORSE_SPECIES, Horse
 from repository.horse_repository import HorseRepository
-from services import scraping_service
+from services import export_service, scraping_service
 from services.scraping_service import ScrapingError
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES
@@ -78,6 +78,23 @@ async def main_page(horse_id: Optional[int] = None) -> None:
                         ):
                             ui.label(label).classes("text-gray-500")
                             ui.label(value)
+
+                    def on_download_excel() -> None:
+                        excel_bytes = export_service.build_horse_detail_excel(
+                            horse, basic_info
+                        )
+                        ui.download(
+                            excel_bytes,
+                            filename=f"{horse.마명}_마적사항.xlsx",
+                            media_type=(
+                                "application/vnd.openxmlformats-officedocument"
+                                ".spreadsheetml.sheet"
+                            ),
+                        )
+
+                    ui.button(
+                        "엑셀로 저장", icon="download", on_click=on_download_excel
+                    ).props("outline color=primary").classes("mt-2")
 
         async def load_and_render(horse: Horse) -> None:
             render_loading()
