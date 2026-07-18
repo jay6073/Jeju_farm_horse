@@ -17,4 +17,9 @@ def index() -> None:
 
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title="Jeju_farm_horse", host="0.0.0.0", port=8080, reload=False)
+    if __name__ in {"__main__", "__mp_main__"}:
+        ui.run(
+            title="Jeju_farm_horse",
+            reload=False,  # 배포 버전이므로 False 유지
+            viewport="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no",
+        )
