@@ -433,7 +433,9 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-_FAILED_FILE = Path(__file__).resolve().parent.parent / "data" / "failed_horses.json"
+from repository.horse_repository import DATA_DIR
+
+_FAILED_FILE = DATA_DIR / "failed_horses.json"
 
 
 def scrape_multiple(마번_list: list[str]) -> tuple[dict[str, dict], list[dict]]:

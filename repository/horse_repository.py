@@ -7,6 +7,7 @@ horses 테이블에 대한 SQLite 접근 계층.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,7 +15,12 @@ from typing import Iterator, Optional
 
 from models.horse import Horse, STATUS_NORMAL, HORSE_SPECIES
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "horses.db"
+# 배포 환경(예: Render)에서 영구 디스크를 마운트한 경로를 DATA_DIR 환경변수로 지정하면
+# 그 위치에 DB를 둔다. 로컬 개발 환경은 환경변수가 없으니 기존과 동일하게
+# 프로젝트 루트의 data/ 폴더를 그대로 쓴다.
+_DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(_DEFAULT_DATA_DIR)))
+DB_PATH = DATA_DIR / "horses.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS horses (
