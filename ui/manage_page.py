@@ -184,12 +184,12 @@ def _build_import_section() -> None:
         preview_container = ui.column().classes("w-full")
         commit_container = ui.column().classes("w-full")
 
-        def on_upload(e: events.UploadEventArguments) -> None:
+        async def on_upload(e: events.UploadEventArguments) -> None:
             preview_container.clear()
             commit_container.clear()
             parsed_rows.clear()
 
-            file_bytes = e.content.read()
+            file_bytes = await e.file.read()
             try:
                 rows = import_service.parse_excel(file_bytes, _repo)
             except ImportValidationError as ex:
