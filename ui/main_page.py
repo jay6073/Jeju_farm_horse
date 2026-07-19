@@ -127,7 +127,7 @@ async def main_page(horse_id: Optional[int] = None) -> None:
                 # 보여줄 대상이 없으니 조용히 무시한다.
                 pass
 
-        def update_horse_options() -> None:
+        async def update_horse_options() -> None:
             species = species_select.value
             result_container.clear()
             if not species:
@@ -135,7 +135,7 @@ async def main_page(horse_id: Optional[int] = None) -> None:
                 horse_select.disable()
                 return
 
-            horses = _repo.get_active_names_by_species(species)
+            horses = await run.io_bound(_repo.get_active_names_by_species, species)
             horse_select.set_options({h.id: h.마명 for h in horses})
             horse_select.value = None
             if horses:
@@ -149,7 +149,7 @@ async def main_page(horse_id: Optional[int] = None) -> None:
             horse_id = horse_select.value
             if horse_id is None:
                 return
-            horse = _repo.get_by_id(horse_id)
+            horse = await run.io_bound(_repo.get_by_id, horse_id)
             if horse is None:
                 render_error("선택한 말 정보를 찾을 수 없습니다.")
                 return
@@ -165,10 +165,10 @@ async def main_page(horse_id: Optional[int] = None) -> None:
         # select 값 세팅까지만 동기로 하고 실제 조회는 백그라운드 태스크로 흘려보낸다.
         # (마명 select의 on_change와 동일한 방식 — 페이지가 이미 뜬 뒤 갱신되는 구조)
         if horse_id is not None:
-            horse = _repo.get_by_id(horse_id)
+            horse = await run.io_bound(_repo.get_by_id, horse_id)
             if horse is not None:
                 species_select.value = horse.마종
-                update_horse_options()
+                await update_horse_options()
                 horse_select.value = horse.id
                 asyncio.create_task(load_and_render(horse))
             else:

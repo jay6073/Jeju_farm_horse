@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from nicegui import events, ui
+from nicegui import events, run, ui
 
 from models.horse import HORSE_SPECIES, NON_NORMAL_STATUSES, Horse
 from repository.horse_repository import HorseRepository
@@ -59,7 +59,7 @@ def _build_add_section() -> None:
             number_input.value = ""
             breed_input.value = ""
 
-        def on_save() -> None:
+        async def on_save() -> None:
             if not name_input.value or not species_select.value:
                 ui.notify("마명과 마종은 필수입니다.", type="warning")
                 return
@@ -74,7 +74,7 @@ def _build_add_section() -> None:
                 ui.notify(str(e), type="negative")
                 return
 
-            _repo.insert(horse)
+            await run.io_bound(_repo.insert, horse)
             ui.notify(f"'{horse.마명}' 등록 완료", type="positive")
             reset_form()
 
@@ -89,7 +89,7 @@ def _build_status_change_section() -> None:
         list_container = ui.column().classes("w-full")
         form_container = ui.column().classes("w-full")
 
-        def render_list() -> None:
+        async def render_list() -> None:
             list_container.clear()
             form_container.clear()
             checked_ids.clear()
@@ -97,7 +97,7 @@ def _build_status_change_section() -> None:
             if not species:
                 return
 
-            horses = _repo.get_all_by_species(species)
+            horses = await run.io_bound(_repo.get_all_by_species, species)
             with list_container:
                 if not horses:
                     empty_state(f"{species}에 해당하는 보유마가 없습니다", icon="info")
@@ -145,13 +145,16 @@ def _build_status_change_section() -> None:
                             ui.notify("발생일자를 입력하세요.", type="warning")
                             return
 
-                        def confirm() -> None:
+                        async def confirm() -> None:
                             dialog.close()
-                            updated = _repo.update_status_bulk(
-                                ids, status_select.value, date_input.value
+                            updated = await run.io_bound(
+                                _repo.update_status_bulk,
+                                ids,
+                                status_select.value,
+                                date_input.value,
                             )
                             ui.notify(f"{updated}마리 상태 변경 완료", type="positive")
-                            render_list()
+                            await render_list()
 
                         with ui.dialog() as dialog, ui.card():
                             ui.label(
@@ -191,7 +194,7 @@ def _build_import_section() -> None:
 
             file_bytes = await e.file.read()
             try:
-                rows = import_service.parse_excel(file_bytes, _repo)
+                rows = await run.io_bound(import_service.parse_excel, file_bytes, _repo)
             except ImportValidationError as ex:
                 with preview_container:
                     with ui.row().classes(
@@ -221,8 +224,10 @@ def _build_import_section() -> None:
 
             valid_count = sum(1 for r in rows if r.will_register)
 
-            def on_commit() -> None:
-                inserted = import_service.commit_rows(parsed_rows, _repo)
+            async def on_commit() -> None:
+                inserted = await run.io_bound(
+                    import_service.commit_rows, parsed_rows, _repo
+                )
                 ui.notify(f"{inserted}마리 일괄 등록 완료", type="positive")
                 preview_container.clear()
                 commit_container.clear()

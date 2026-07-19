@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from nicegui import ui
+from nicegui import run, ui
 
 from models.horse import HORSE_SPECIES
 from repository.horse_repository import HorseRepository
@@ -19,12 +19,12 @@ _repo = HorseRepository()
 
 
 @ui.page("/dashboard")
-def dashboard_page() -> None:
+async def dashboard_page() -> None:
     with ui.column().classes("w-full max-w-3xl mx-auto p-6 gap-6"):
         render_nav("/dashboard")
         ui.label("보유두수 대시보드").classes("text-xl font-medium")
 
-        counts = dashboard_service.get_species_counts(_repo)
+        counts = await run.io_bound(dashboard_service.get_species_counts, _repo)
         total = sum(counts.values())
 
         with ui.row().classes("w-full gap-3 flex-wrap"):
@@ -37,7 +37,7 @@ def dashboard_page() -> None:
         search_input = ui.input(label="마명 검색").classes("w-full max-w-xs")
         list_container = ui.column().classes("w-full")
 
-        all_horses = dashboard_service.get_all_horses(_repo)
+        all_horses = await run.io_bound(dashboard_service.get_all_horses, _repo)
 
         def render_list(filter_text: str = "") -> None:
             list_container.clear()

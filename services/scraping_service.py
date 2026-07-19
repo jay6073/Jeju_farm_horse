@@ -433,9 +433,12 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from repository.horse_repository import DATA_DIR
-
-_FAILED_FILE = DATA_DIR / "failed_horses.json"
+# ⚠️ failed_horses.json은 DB(Supabase/Postgres)와 무관한, 배치 스크래핑 실패 기록용
+# 로컬 파일이다. repository가 SQLite에서 Postgres로 바뀌면서 DATA_DIR 개념 자체가
+# 없어졌으므로, 이 파일은 scraping_service 스스로 독립적인 경로를 갖는다.
+# 로컬 개발 환경 기준 경로이며, 클라우드 배포 시 이 파일에 굳이 영속성이 필요하진 않다
+# (실패 목록은 재실행하면 다시 채워지는 캐시성 데이터이기 때문).
+_FAILED_FILE = Path(__file__).resolve().parent.parent / "data" / "failed_horses.json"
 
 
 def scrape_multiple(마번_list: list[str]) -> tuple[dict[str, dict], list[dict]]:

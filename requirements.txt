@@ -1,5 +1,6 @@
 nicegui
-curl_cffi==0.15.0
-pandas==3.0.3
-openpyxl==3.1.5
-requests==2.34.2
+curl_cffi
+pandas
+openpyxl
+"psycopg[binary]"
+psycopg_pool
