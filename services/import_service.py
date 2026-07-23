@@ -68,11 +68,13 @@ def parse_excel(file_bytes: bytes, repository) -> list[ImportRow]:
         )
 
     # -------------------------------------------------------------
-    # ⚡ [속도 개선 핵심] 1. DB에서 기존 마명/마번 세트를 '단 1번'만 일괄 조회
-    # (repository에 해당 메서드가 없다면 아래 💡 팁 참고)
+    # ⚡ [속도 개선] DB에서 전체 보유마 목록을 딱 '1번'만 가져옵니다.
     # -------------------------------------------------------------
-    existing_pairs = repository.get_all_existing_마명_and_마번() 
-    # 반환 형식 예시: {("닉스고", "0031234"), ("한센", "0025678"), ...} 집합(Set)
+    all_horses = repository.get_all()
+    
+    # 메모리 상에서 0.0001초 만에 비교할 수 있도록 Set(집합)으로 보관
+    existing_names = {h.마명 for h in all_horses if h.마명}
+    existing_numbers = {h.마번 for h in all_horses if h.마번}
 
     rows: list[ImportRow] = []
     for i, record in enumerate(df.to_dict(orient="records")):
@@ -95,8 +97,8 @@ def parse_excel(file_bytes: bytes, repository) -> list[ImportRow]:
 
         is_dup = False
         if error is None:
-            # ⚡ [속도 개선 핵심] 2. DB 접속 없이 메모리 상의 Set에서 0.0001초만에 바로 체크!
-            is_dup = repository.is_duplicate_in_memory(마명, 마번, existing_pairs)
+            # ⚡ DB 재접속 없이 메모리(Set)에서 즉시 중복 체크!
+            is_dup = (마명 in existing_names) or (bool(마번) and 마번 in existing_numbers)
 
         rows.append(
             ImportRow(
