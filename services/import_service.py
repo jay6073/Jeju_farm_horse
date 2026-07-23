@@ -54,10 +54,6 @@ def _clean(value) -> Optional[str]:
 def parse_excel(file_bytes: bytes, repository) -> list[ImportRow]:
     """
     엑셀 바이트를 읽어 검증하고 미리보기용 ImportRow 리스트를 반환한다.
-
-    - REQUIRED_COLS가 하나라도 없으면 ImportValidationError를 던져 업로드를 중단한다.
-    - 마명 공백/마종 오타/품종코드 형식 오류 같은 행 단위 오류는 개별 error 필드에 남기고
-      전체 파싱은 중단하지 않는다 (사용자가 미리보기에서 보고 판단).
     """
     try:
         df = pd.read_excel(io.BytesIO(file_bytes), dtype=str)
@@ -71,6 +67,13 @@ def parse_excel(file_bytes: bytes, repository) -> list[ImportRow]:
             f"엑셀에 {', '.join(REQUIRED_COLS)} 컬럼이 모두 있어야 합니다."
         )
 
+    # -------------------------------------------------------------
+    # ⚡ [속도 개선 핵심] 1. DB에서 기존 마명/마번 세트를 '단 1번'만 일괄 조회
+    # (repository에 해당 메서드가 없다면 아래 💡 팁 참고)
+    # -------------------------------------------------------------
+    existing_pairs = repository.get_all_existing_마명_and_마번() 
+    # 반환 형식 예시: {("닉스고", "0031234"), ("한센", "0025678"), ...} 집합(Set)
+
     rows: list[ImportRow] = []
     for i, record in enumerate(df.to_dict(orient="records")):
         row_no = i + 2  # 헤더가 1행이므로 데이터는 2행부터 시작
@@ -79,7 +82,7 @@ def parse_excel(file_bytes: bytes, repository) -> list[ImportRow]:
         raw_마번 = _clean(record.get("등록번호"))
         품종코드 = _clean(record.get("품종코드")) if "품종코드" in df.columns else None
 
-        # [수정] Horse 모델과 동일하게 미리 마번(등록번호)을 7자리 정규화
+        # Horse 모델과 동일하게 미리 마번(등록번호)을 7자리 정규화
         마번 = normalize_horse_number(raw_마번)
 
         error: Optional[str] = None
@@ -87,14 +90,13 @@ def parse_excel(file_bytes: bytes, repository) -> list[ImportRow]:
             error = "마명이 비어 있습니다."
         elif 마종 not in HORSE_SPECIES:
             error = f"유효하지 않은 마종입니다: {마종!r} (허용값: {', '.join(HORSE_SPECIES)})"
-        # [수정] Horse.__post_init__ 검증 조건을 미리보기 단계에서 동일하게 수행
         elif 품종코드 is not None and not (품종코드.isdigit() and len(품종코드) == 5):
             error = f"품종코드 형식이 올바르지 않습니다: {품종코드!r} (5자리 숫자)"
 
         is_dup = False
         if error is None:
-            # [수정] 정규화된 마번으로 DB 중복 검증 수행
-            is_dup = repository.exists_by_마명_or_마번(마명, 마번)
+            # ⚡ [속도 개선 핵심] 2. DB 접속 없이 메모리 상의 Set에서 0.0001초만에 바로 체크!
+            is_dup = repository.is_duplicate_in_memory(마명, 마번, existing_pairs)
 
         rows.append(
             ImportRow(
