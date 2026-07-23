@@ -24,16 +24,20 @@ _repo = HorseRepository()
 
 @ui.page("/manage")
 def manage_page() -> None:
-    with ui.column().classes("w-full max-w-3xl mx-auto p-6 gap-6"):
+    # 1. 모바일(p-3 sm:p-6)과 PC 환경에 맞춘 여백 및 전체 컨테이너 너비 설정
+    with ui.column().classes("w-full max-w-3xl mx-auto p-3 sm:p-6 gap-4 sm:gap-6"):
         render_nav("/manage")
-        ui.label("보유마 관리").classes("text-xl font-medium")
+        ui.label("보유마 관리").classes("text-lg sm:text-xl font-medium")
 
-        with ui.tabs().classes("w-full") as tabs:
-            tab_add = ui.tab("개별 추가")
-            tab_status = ui.tab("보유상태 변경")
-            tab_import = ui.tab("엑셀 일괄 등록")
+        # 2. 탭 바: dense 적용 및 균등 분배(justify-between / flex-1)
+        with ui.tabs().props("dense").classes("w-full border-b border-gray-200") as tabs:
+            # text-xs(모바일) -> sm:text-sm(PC), px-1로 모바일 좌우 여백 축소
+            tab_add = ui.tab("개별 추가").classes("flex-1 text-xs sm:text-sm px-1")
+            tab_status = ui.tab("보유상태 변경").classes("flex-1 text-xs sm:text-sm px-1")
+            tab_import = ui.tab("엑셀 일괄 등록").classes("flex-1 text-xs sm:text-sm px-1")
 
-        with ui.tab_panels(tabs, value=tab_add).classes("w-full"):
+        # 3. 탭 패널 내부 여백 축소 (p-1 sm:p-4)
+        with ui.tab_panels(tabs, value=tab_add).classes("w-full p-1 sm:p-4"):
             with ui.tab_panel(tab_add):
                 _build_add_section()
             with ui.tab_panel(tab_status):
@@ -182,7 +186,7 @@ def _build_import_section() -> None:
         ui.label(
             "필수 컬럼: 마명, 마종, 등록번호 (품종코드는 선택 컬럼). "
             "등록번호·품종코드는 horsepia URL 값을 그대로 넣으세요."
-        ).classes("text-xs text-gray-400")
+        ).classes("text-xs text-gray-400 break-words w-full")
 
         preview_container = ui.column().classes("w-full")
         commit_container = ui.column().classes("w-full")
@@ -224,7 +228,7 @@ def _build_import_section() -> None:
             parsed_rows.extend(rows)
 
             with preview_container:
-                with ui.card().classes(CARD_CLASSES + " p-4"):
+                with ui.card().classes(CARD_CLASSES + " p-4 w-full"):
                     for r in rows:
                         with ui.row().classes(
                             "items-center gap-3 w-full text-sm py-1 border-b border-gray-100"
@@ -253,9 +257,18 @@ def _build_import_section() -> None:
             with commit_container:
                 btn = ui.button(f"일괄 등록 ({valid_count}건)", on_click=on_commit).props(
                     "color=primary"
-                )
+                ).classes("w-full sm:w-auto")
                 if valid_count == 0:
                     btn.disable()
 
-        # .xlsm 매크로 파일 확장자도 허용하도록 수정
-        ui.upload(on_upload=on_upload, auto_upload=True).props("accept=.xlsx,.xls,.xlsm")
+        # -------------------------------------------------------------
+        # 📱 [모바일 대응 & 디자인 개선] 반응형 스타일 적용
+        # -------------------------------------------------------------
+        ui.upload(
+            on_upload=on_upload, 
+            auto_upload=True
+        ).props(
+            'flat bordered color=primary accept=.xlsx,.xls,.xlsm dense'
+        ).classes(
+            'w-full max-w-full rounded-xl border-2 border-dashed border-gray-300 bg-gray-50/50 hover:border-blue-400 transition-colors'
+        )
