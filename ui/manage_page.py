@@ -192,16 +192,33 @@ def _build_import_section() -> None:
             commit_container.clear()
             parsed_rows.clear()
 
-            file_bytes = await e.file.read()
             try:
+                # e.content(BytesIO) 또는 e.file.read() 안전하게 호환 처리
+                if hasattr(e, 'content') and e.content:
+                    file_bytes = e.content.read()
+                elif hasattr(e, 'file'):
+                    file_bytes = await e.file.read()
+                else:
+                    raise Exception("파일 데이터를 읽을 수 없습니다.")
+
                 rows = await run.io_bound(import_service.parse_excel, file_bytes, _repo)
+            
             except ImportValidationError as ex:
                 with preview_container:
                     with ui.row().classes(
-                        "items-center gap-2 py-3 px-4 bg-red-50 rounded-lg"
+                        "items-center gap-2 py-3 px-4 bg-red-50 rounded-lg w-full"
                     ):
                         ui.icon("error").classes("text-red-500")
                         ui.label(str(ex)).classes("text-red-600 text-sm")
+                return
+            except Exception as ex:
+                # 엑셀 파싱 중 발생하는 모든 일반 오류를 화면에 출력
+                with preview_container:
+                    with ui.row().classes(
+                        "items-center gap-2 py-3 px-4 bg-red-50 rounded-lg w-full"
+                    ):
+                        ui.icon("warning").classes("text-red-500")
+                        ui.label(f"엑셀 파일 읽기 실패: {str(ex)}").classes("text-red-600 text-sm")
                 return
 
             parsed_rows.extend(rows)
@@ -240,4 +257,5 @@ def _build_import_section() -> None:
                 if valid_count == 0:
                     btn.disable()
 
-        ui.upload(on_upload=on_upload, auto_upload=True).props("accept=.xlsx,.xls")
+        # .xlsm 매크로 파일 확장자도 허용하도록 수정
+        ui.upload(on_upload=on_upload, auto_upload=True).props("accept=.xlsx,.xls,.xlsm")
