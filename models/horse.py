@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 import re
 from typing import Optional
+from shared.horse_number import normalize_horse_number  # noqa: F401
 
 # 마종 옵션 (main_page, manage_page의 select 옵션과 동일하게 유지)
 HORSE_SPECIES: list[str] = ["씨수말", "교육마", "관상마", "위수탁마", "기타마"]
@@ -48,28 +49,6 @@ def get_breed_label(code: Optional[str]) -> str:
     if not code:
         return "-"
     return HORSE_BREED_CODES.get(code, f"{code}(확인필요)")
-
-
-def normalize_horse_number(raw: Optional[str]) -> Optional[str]:
-    """
-    horsepia 등록번호(마번)를 7자리로 정규화한다.
-    과거 프로젝트에서 확인된 "엑셀에서 선행 0이 소실되는" 이슈를 방지하기 위함.
-    빈 값/None은 그대로 None으로 둔다 (마번은 선택 입력 항목).
-    """
-    if raw is None:
-        return None
-    cleaned = str(raw).strip()
-    if not cleaned:
-        return None
-    # 엑셀에서 숫자로 읽혀 "12345.0" 형태로 들어오는 경우 방지
-    if cleaned.endswith(".0"):
-        cleaned = cleaned[:-2]
-    if not cleaned.isdigit():
-        # 숫자가 아닌 값이 섞여 있으면 정규화하지 않고 원본을 그대로 반환한다.
-        # (호출부에서 검증 실패로 처리할 수 있도록 예외를 던지지 않는다)
-        return cleaned
-    return cleaned.zfill(7)
-
 
 @dataclass
 class Horse:
