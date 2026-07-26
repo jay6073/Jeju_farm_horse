@@ -59,7 +59,15 @@ def upsert_horse(horse_dict: dict[str, Any], conn=None) -> None:
 def get_horse(horse_id: str) -> Optional[dict[str, Any]]:
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("SELECT * FROM entrustment WHERE horse_id = %s", (horse_id,))
+            cur.execute(
+                """
+                SELECT e.*, h.마명 AS name, h.마명 AS current_name
+                FROM entrustment e
+                JOIN horses h ON h.마번 = e.horse_id
+                WHERE e.horse_id = %s
+                """,
+                (horse_id,),
+            )
             row = cur.fetchone()
             return dict(row) if row else None
 
@@ -73,15 +81,20 @@ def list_horses(
     applicant_name: Optional[str] = None,
     application_year: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    query = "SELECT * FROM entrustment WHERE 1=1"
+    query = """
+        SELECT e.*, h.마명 AS name, h.마명 AS current_name
+        FROM entrustment e
+        JOIN horses h ON h.마번 = e.horse_id
+        WHERE 1=1
+    """
     params: list[Any] = []
     if status:
-        query += " AND status = %s"
+        query += " AND e.status = %s"
         params.append(status)
     if application_year:
-        query += " AND application_year = %s"
+        query += " AND e.application_year = %s"
         params.append(application_year)
-    query += " ORDER BY application_year DESC, horse_id"
+    query += " ORDER BY e.application_year DESC, e.horse_id"
 
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
@@ -211,12 +224,13 @@ def unset_final_flag_for_horse(horse_id: str, except_id: Optional[int] = None, c
 
 
 def list_all_auction_records_with_horse() -> list[dict[str, Any]]:
-    """경매관리 화면 전체 목록용. Horse 기본정보(마명)와 위탁정보(신청인/상태)를 조인해서 반환."""
+    """경매관리 화면 전체 목록용. Horse 기본정보(마명)와 위탁정보(신청인/상태/사업연도)를 조인해서 반환."""
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT ar.*, h.마명 AS horse_name, e.applicant_name, e.status AS horse_status
+                SELECT ar.*, h.마명 AS horse_name, e.applicant_name, e.status AS horse_status,
+                       e.application_year
                 FROM auction_record ar
                 JOIN horses h ON h.마번 = ar.horse_id
                 LEFT JOIN entrustment e ON e.horse_id = ar.horse_id
