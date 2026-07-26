@@ -9,6 +9,7 @@ race_record/career_summary 테이블로 이관한다.
 from __future__ import annotations
 
 import sqlite3
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,7 +20,7 @@ from repository.horse_repository import _get_connection as a_get_connection, ini
 from psycopg.rows import dict_row
 from shared.horse_number import normalize_horse_number
 
-B_SQLITE_PATH = Path(r"C:\Users\1960100\Documents\horse-management\data\horse_management.db")
+B_SQLITE_PATH = Path(os.path.expanduser("~/horse-management/data/horse_management.db"))
 
 _ENTRUSTMENT_FIELDS = [
     "horse_id", "application_year", "applicant_name", "farm_name",
