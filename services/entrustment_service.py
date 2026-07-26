@@ -274,13 +274,28 @@ def get_statistics_by_applicant() -> pd.DataFrame:
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────
 
 
+_ENTRUSTMENT_FIELDS = {
+    "horse_id",
+    "application_year",
+    "applicant_name",
+    "farm_name",
+    "farm_in_date",
+    "farm_out_date",
+    "entrustment_period",
+    "entrustment_fee",
+    "status",
+}
+
+
 def _horse_to_db_dict(horse: Horse) -> dict[str, Any]:
     """
-    Pydantic 모델 -> DB 저장용 dict.
-    [통합 시 변경] PostgreSQL은 date 네이티브 타입을 지원하므로 .isoformat() 문자열 변환을
-    제거하고 date 객체를 그대로 넘긴다 (psycopg가 알아서 바인딩).
+    Pydantic 모델 -> entrustment 테이블 저장용 dict.
+    [통합 시 변경] Horse 모델에는 말 자체 속성(name 등)도 섞여 있지만,
+    entrustment 테이블은 위탁 계약 필드만 가지므로 걸러서 반환한다.
+    PostgreSQL은 date 네이티브 타입을 지원하므로 .isoformat() 변환은 하지 않는다.
     """
-    return horse.model_dump()
+    full = horse.model_dump()
+    return {k: v for k, v in full.items() if k in _ENTRUSTMENT_FIELDS}
 
 
 def _coerce_datetime(value: Any) -> Optional[datetime]:
