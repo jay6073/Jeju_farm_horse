@@ -1,134 +1,129 @@
 """
-Phase 0: 엑셀 이관 오케스트레이션.
-excel_adapter(순수 파싱)의 결과를 받아 검증 후 repository에 저장한다.
-규칙: ui -> services(이 파일) -> repository 순서만 호출한다.
+엑셀 업로드 파싱/검증/일괄 등록 서비스 (아키텍처 프롬프트 4-2절 "엑셀 일괄 업로드").
 
-[통합 시 변경사항]
-- 기존에는 이 파일이 "말 자체"(Horse)를 생성/덮어쓰기(upsert_horse)까지 담당했으나,
-  통합 후 "말 개체"는 A의 horses 테이블이 유일한 출처가 되므로 이 로직을 제거.
-- 대신 엑셀의 마번이 A의 horses에 실제로 존재하는지 확인(a_horse_exists)한 뒤,
-  존재하는 말에 대해서만 위탁 계약(entrustment)과 경매기록만 저장하도록 축소.
-- 존재하지 않는 마번은 스킵 처리하고 skip_details에 "A에 먼저 등록 필요"로 남긴다.
+- 필수 컬럼(마명/마종/등록번호) 누락 시 즉시 명확한 에러로 업로드 자체를 중단한다
+  (조용히 None 처리하지 않는다).
+- 행 단위 오류(마종 오타 등)는 전체를 막지 않고, 미리보기에서 그 행만 "등록 제외"로 표시한다.
+- 중복(마명 또는 마번이 이미 존재)도 미리보기 단계에서 표시하고, 기본은 건너뛴다.
+- 실제 등록은 미리보기 확인 후 별도 commit_rows() 호출로만 이뤄진다(오등록 방지).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Optional
+import io
+from dataclasses import dataclass
+from typing import Optional
 
 import pandas as pd
 
-from adapters import excel_adapter
-from db import repository
-from models.schemas import Horse
-from services.entrustment_service import a_horse_exists, _ENTRUSTMENT_FIELDS
-from pydantic import ValidationError
+from models.horse import HORSE_SPECIES, Horse, normalize_horse_number
+
+REQUIRED_COLS = ["마명", "마종", "등록번호"]
+OPTIONAL_COLS = ["품종코드"]
+
+
+class ImportValidationError(Exception):
+    """엑셀 컬럼 누락 등, 업로드 자체를 중단시켜야 하는 오류."""
 
 
 @dataclass
-class ImportResult:
-    total_rows: int = 0
-    success_count: int = 0
-    skipped_count: int = 0
-    overwritten_count: int = 0
-    skip_details: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-    created_horse_ids: list[str] = field(default_factory=list)
+class ImportRow:
+    """미리보기 화면에 한 줄로 표시될 행 하나."""
+
+    row_no: int  # 엑셀상 몇 번째 행인지 (헤더=1행, 데이터는 2행부터)
+    마명: str
+    마종: str
+    마번: Optional[str]
+    품종코드: Optional[str]
+    is_duplicate: bool
+    error: Optional[str] = None  # 있으면 등록 대상에서 제외 (미리보기에서 사유 표시)
+
+    @property
+    def will_register(self) -> bool:
+        return self.error is None and not self.is_duplicate
 
 
-def preview_excel(file) -> tuple[pd.DataFrame, list[str]]:
+def _clean(value) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return None
+    return text
+
+
+def parse_excel(file_bytes: bytes, repository) -> list[ImportRow]:
     """
-    업로드된 엑셀을 미리보기용으로 파싱만 하고 저장은 하지 않는다.
-    반환: (미리보기 DataFrame, 컬럼 누락 경고 리스트)
+    엑셀 바이트를 읽어 검증하고 미리보기용 ImportRow 리스트를 반환한다.
     """
-    df = excel_adapter.read_excel_sheet(file)
-    missing_cols = excel_adapter.validate_columns(df)
-    return df, missing_cols
+    try:
+        df = pd.read_excel(io.BytesIO(file_bytes), dtype=str)
+    except Exception as e:
+        raise ImportValidationError(f"엑셀 파일을 읽을 수 없습니다: {e}") from e
 
-
-def import_horses_from_excel(file, overwrite_existing: bool = False) -> ImportResult:
-    """
-    실제 이관 실행. overwrite_existing=False이면 이미 존재하는 마번은 스킵하고 경고에 남긴다.
-    [통합 시 변경] 말 자체 생성 대신, A에 이미 등록된 마번에 대해서만 위탁 계약+경매기록을 저장.
-    """
-    df = excel_adapter.read_excel_sheet(file)
-
-    missing_cols = excel_adapter.validate_columns(df)
-    if missing_cols:
-        raise ValueError(
-            f"엑셀에 필수 컬럼이 없습니다: {', '.join(missing_cols)}. "
-            "원본 시트 구조가 변경되었는지 확인하세요."
+    missing = [c for c in REQUIRED_COLS if c not in df.columns]
+    if missing:
+        raise ImportValidationError(
+            f"필수 컬럼이 없습니다: {', '.join(missing)}. "
+            f"엑셀에 {', '.join(REQUIRED_COLS)} 컬럼이 모두 있어야 합니다."
         )
 
-    parsed_rows = excel_adapter.parse_rows(df)
+    # -------------------------------------------------------------
+    # ⚡ [속도 개선] DB에서 전체 보유마 목록을 딱 '1번'만 가져옵니다.
+    # -------------------------------------------------------------
+    all_horses = repository.get_all()
+    
+    # 메모리 상에서 0.0001초 만에 비교할 수 있도록 Set(집합)으로 보관
+    existing_names = {h.마명 for h in all_horses if h.마명}
+    existing_numbers = {h.마번 for h in all_horses if h.마번}
 
-    result = ImportResult(total_rows=len(parsed_rows))
+    rows: list[ImportRow] = []
+    for i, record in enumerate(df.to_dict(orient="records")):
+        row_no = i + 2  # 헤더가 1행이므로 데이터는 2행부터 시작
+        마명 = _clean(record.get("마명")) or ""
+        마종 = _clean(record.get("마종")) or ""
+        raw_마번 = _clean(record.get("등록번호"))
+        품종코드 = _clean(record.get("품종코드")) if "품종코드" in df.columns else None
 
-    for parsed in parsed_rows:
-        if parsed.skip_reason:
-            result.skipped_count += 1
-            result.skip_details.append(f"{parsed.row_number}행: {parsed.skip_reason}")
-            continue
+        # Horse 모델과 동일하게 미리 마번(등록번호)을 7자리 정규화
+        마번 = normalize_horse_number(raw_마번)
 
-        result.warnings.extend(parsed.warnings)
+        error: Optional[str] = None
+        if not 마명:
+            error = "마명이 비어 있습니다."
+        elif 마종 not in HORSE_SPECIES:
+            error = f"유효하지 않은 마종입니다: {마종!r} (허용값: {', '.join(HORSE_SPECIES)})"
+        elif 품종코드 is not None and not (품종코드.isdigit() and len(품종코드) == 5):
+            error = f"품종코드 형식이 올바르지 않습니다: {품종코드!r} (5자리 숫자)"
 
-        horse_dict = parsed.horse
-        horse_id = horse_dict["horse_id"]
+        is_dup = False
+        if error is None:
+            # ⚡ DB 재접속 없이 메모리(Set)에서 즉시 중복 체크!
+            is_dup = (마명 in existing_names) or (bool(마번) and 마번 in existing_numbers)
 
-        # [통합 시 추가] A의 horses에 없는 마번은 위탁 계약을 등록할 수 없으므로 스킵
-        if not a_horse_exists(horse_id):
-            result.skipped_count += 1
-            result.skip_details.append(
-                f"{parsed.row_number}행 (마번 {horse_id}): 전체 말 관리(A)에 등록되지 않은 마번 - 먼저 A에서 등록 필요"
+        rows.append(
+            ImportRow(
+                row_no=row_no,
+                마명=마명,
+                마종=마종,
+                마번=마번,
+                품종코드=품종코드,
+                is_duplicate=is_dup,
+                error=error,
             )
-            continue
-
-        try:
-            horse_model = Horse(**horse_dict)
-        except ValidationError as e:
-            messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
-            result.skipped_count += 1
-            result.skip_details.append(
-                f"{parsed.row_number}행 (마번 {horse_id}): 검증 오류 - {'; '.join(messages)}"
-            )
-            continue
-
-        already_exists = repository.horse_exists(horse_id)
-        if already_exists and not overwrite_existing:
-            result.skipped_count += 1
-            result.skip_details.append(
-                f"{parsed.row_number}행 (마번 {horse_id}): 이미 위탁 계약이 존재함 (덮어쓰기 미선택으로 스킵)"
-            )
-            continue
-
-        db_dict = _horse_model_to_entrustment_dict(horse_model)
-        repository.upsert_horse(db_dict)
-
-        # 재이관 시 중복 방지를 위해 기존 경매 기록을 지우고 새로 넣는다 (idempotent).
-        existing_auctions = repository.list_auction_records(horse_id)
-        for a in existing_auctions:
-            repository.delete_auction_record(a["id"])
-
-        for auction in parsed.auctions:
-            auction_to_save = {
-                k: v for k, v in auction.items() if not k.startswith("_")
-            }
-            auction_to_save["horse_id"] = horse_id
-            # [통합 시 변경] PostgreSQL 네이티브 date/boolean 타입 사용, isoformat/int 변환 제거
-            repository.insert_auction_record(auction_to_save)
-
-        if already_exists:
-            result.overwritten_count += 1
-        else:
-            result.success_count += 1
-        result.created_horse_ids.append(horse_id)
-
-    return result
+        )
+    return rows
 
 
-def _horse_model_to_entrustment_dict(horse: Horse) -> dict[str, Any]:
+def commit_rows(rows: list[ImportRow], repository) -> int:
     """
-    [통합 시 변경] entrustment 테이블 컬럼만 추려서 반환.
-    entrustment_service._ENTRUSTMENT_FIELDS를 그대로 재사용.
+    미리보기에서 확정된 rows를 실제로 등록한다.
+    error가 있거나 중복인 행은 제외한다. 등록된 건수를 반환한다.
     """
-    full = horse.model_dump()
-    return {k: v for k, v in full.items() if k in _ENTRUSTMENT_FIELDS}
+    horses = [
+        Horse(마명=r.마명, 마종=r.마종, 마번=r.마번, 품종코드=r.품종코드)
+        for r in rows
+        if r.will_register
+    ]
+    if not horses:
+        return 0
+    return repository.insert_many(horses)
