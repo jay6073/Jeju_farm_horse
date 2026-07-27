@@ -13,6 +13,8 @@ from ui import entrustment_page  # noqa: F401
 from ui import main_page  # noqa: F401  (@ui.page 데코레이터 등록을 위한 import)
 from ui import manage_page  # noqa: F401
 from ui import dashboard_page  # noqa: F401
+from ui import auction_page  # noqa: F401
+from ui import racing_page  # noqa: F401
 from ui.theme import apply_global_theme
 
 
