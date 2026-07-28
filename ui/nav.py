@@ -1,5 +1,9 @@
 """
-좌측 사이드바 공용 네비게이션 (아키텍처 프롬프트 6장 "레이아웃" 참고).
+좌측 드로어(drawer) 공용 네비게이션 (아키텍처 프롬프트 6장 "레이아웃" 참고).
+
+- PC(넓은 화면): 사이드바가 항상 고정되어 열려있음
+- 모바일(좁은 화면, 기본 브레이크포인트 1023px 미만): 자동으로 오버레이 드로어로 전환,
+  상단 헤더의 햄버거 아이콘으로 열고 닫음 (ui.left_drawer의 기본 반응형 동작)
 """
 from __future__ import annotations
 
@@ -20,18 +24,22 @@ _PAGES = [
 
 
 def render_nav(active_path: str):
-    """사이드바를 렌더링하고, 페이지 콘텐츠를 넣을 컨테이너를 반환한다."""
+    """상단 헤더 + 좌측 드로어를 렌더링하고, 페이지 콘텐츠를 넣을 컨테이너를 반환한다."""
     apply_global_theme()
 
-    row = ui.row().classes("w-full h-screen -m-6 gap-0")
-    row.__enter__()
+    with ui.header().classes(
+        "items-center justify-between bg-white text-gray-700 border-b border-gray-200 px-2"
+    ).style("box-shadow: none;"):
+        with ui.row().classes("items-center gap-1"):
+            drawer_toggle = ui.button(icon="menu").props("flat round dense color=grey-8")
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("pets").classes("text-primary text-xl")
+                ui.label("제주목장").classes("text-lg font-bold")
 
-    with ui.column().classes(
-        "w-52 h-full flex-shrink-0 bg-white border-r border-gray-200 px-3 py-4 gap-1"
-    ):
-        with ui.row().classes("items-center gap-2 px-2 mb-4"):
-            ui.icon("pets").classes("text-primary text-xl")
-            ui.label("제주목장").classes("text-lg font-bold text-gray-700")
+    with ui.left_drawer(value=True).classes(
+        "bg-white border-r border-gray-200 px-3 py-4 gap-1"
+    ).props("bordered") as drawer:
+        drawer_toggle.on("click", drawer.toggle)
 
         for path, label, icon in _PAGES:
             if path is None:
@@ -53,7 +61,5 @@ def render_nav(active_path: str):
                     ui.icon(icon).classes("text-base")
                     ui.label(label).classes("text-sm")
 
-    content = ui.column().classes("flex-1 h-full overflow-y-auto p-6 gap-6")
-    row.__exit__(None, None, None)
-
+    content = ui.column().classes("w-full p-6 gap-6")
     return content
