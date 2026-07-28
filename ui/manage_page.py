@@ -5,6 +5,8 @@
 1. 개별 추가
 2. 보유상태 변경 (다중 선택 + 상태/발생일자, 물리 삭제 없음)
 3. 엑셀 일괄 업로드 (최초 등록용, 미리보기 확인 후 반영)
+
+[통합 시 변경사항] 상단 탭 네비게이션 -> 좌측 사이드바로 전환.
 """
 from __future__ import annotations
 
@@ -24,19 +26,15 @@ _repo = HorseRepository()
 
 @ui.page("/manage")
 def manage_page() -> None:
-    # 1. 모바일(p-3 sm:p-6)과 PC 환경에 맞춘 여백 및 전체 컨테이너 너비 설정
-    with ui.column().classes("w-full max-w-3xl mx-auto p-3 sm:p-6 gap-4 sm:gap-6"):
-        render_nav("/manage")
+    content = render_nav("/manage")
+    with content:
         ui.label("보유마 관리").classes("text-lg sm:text-xl font-medium")
 
-        # 2. 탭 바: dense 적용 및 균등 분배(justify-between / flex-1)
         with ui.tabs().props("dense").classes("w-full border-b border-gray-200") as tabs:
-            # text-xs(모바일) -> sm:text-sm(PC), px-1로 모바일 좌우 여백 축소
             tab_add = ui.tab("개별 추가").classes("flex-1 text-xs sm:text-sm px-1")
             tab_status = ui.tab("보유상태 변경").classes("flex-1 text-xs sm:text-sm px-1")
             tab_import = ui.tab("엑셀 일괄 등록").classes("flex-1 text-xs sm:text-sm px-1")
 
-        # 3. 탭 패널 내부 여백 축소 (p-1 sm:p-4)
         with ui.tab_panels(tabs, value=tab_add).classes("w-full p-1 sm:p-4"):
             with ui.tab_panel(tab_add):
                 _build_add_section()
@@ -47,7 +45,7 @@ def manage_page() -> None:
 
 
 def _build_add_section() -> None:
-    with ui.column().classes("w-full gap-3"):
+    with ui.column().classes("w-full max-w-2xl gap-3"):
         name_input = ui.input(label="마명").classes("w-full")
         species_select = ui.select(options=HORSE_SPECIES, label="마종").classes("w-full")
         number_input = ui.input(label="마번 (horsepia 등록번호, 선택)").classes("w-full")
@@ -88,7 +86,7 @@ def _build_add_section() -> None:
 def _build_status_change_section() -> None:
     checked_ids: set[int] = set()
 
-    with ui.column().classes("w-full gap-3"):
+    with ui.column().classes("w-full max-w-2xl gap-3"):
         species_select = ui.select(options=HORSE_SPECIES, label="마종").classes("w-full")
         list_container = ui.column().classes("w-full")
         form_container = ui.column().classes("w-full")
@@ -182,7 +180,7 @@ def _build_status_change_section() -> None:
 def _build_import_section() -> None:
     parsed_rows: list = []
 
-    with ui.column().classes("w-full gap-3"):
+    with ui.column().classes("w-full max-w-2xl gap-3"):
         ui.label(
             "필수 컬럼: 마명, 마종, 등록번호 (품종코드는 선택 컬럼). "
             "등록번호·품종코드는 horsepia URL 값을 그대로 넣으세요."
@@ -197,7 +195,6 @@ def _build_import_section() -> None:
             parsed_rows.clear()
 
             try:
-                # e.content(BytesIO) 또는 e.file.read() 안전하게 호환 처리
                 if hasattr(e, 'content') and e.content:
                     file_bytes = e.content.read()
                 elif hasattr(e, 'file'):
@@ -206,7 +203,7 @@ def _build_import_section() -> None:
                     raise Exception("파일 데이터를 읽을 수 없습니다.")
 
                 rows = await run.io_bound(import_service.parse_excel, file_bytes, _repo)
-            
+
             except ImportValidationError as ex:
                 with preview_container:
                     with ui.row().classes(
@@ -216,7 +213,6 @@ def _build_import_section() -> None:
                         ui.label(str(ex)).classes("text-red-600 text-sm")
                 return
             except Exception as ex:
-                # 엑셀 파싱 중 발생하는 모든 일반 오류를 화면에 출력
                 with preview_container:
                     with ui.row().classes(
                         "items-center gap-2 py-3 px-4 bg-red-50 rounded-lg w-full"
@@ -261,11 +257,8 @@ def _build_import_section() -> None:
                 if valid_count == 0:
                     btn.disable()
 
-        # -------------------------------------------------------------
-        # 📱 [모바일 대응 & 디자인 개선] 반응형 스타일 적용
-        # -------------------------------------------------------------
         ui.upload(
-            on_upload=on_upload, 
+            on_upload=on_upload,
             auto_upload=True
         ).props(
             'flat bordered color=primary accept=.xlsx,.xls,.xlsm dense'

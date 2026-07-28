@@ -6,6 +6,9 @@
 - 품종코드가 없는 말은 자동탐지(get_horse_detail_auto)로 처리
 - 스크래핑 실패는 ScrapingError만 잡아 친절한 에러 메시지로 표시
 - /main?horse_id=42 형태의 딥링크 지원 (대시보드 목록의 하이퍼링크에서 진입)
+
+[통합 시 변경사항] 상단 탭 네비게이션 -> 좌측 사이드바로 전환.
+render_nav가 콘텐츠 컨테이너를 반환하므로 그 안에서 렌더링한다.
 """
 from __future__ import annotations
 
@@ -26,18 +29,18 @@ _repo = HorseRepository()
 
 @ui.page("/main")
 async def main_page(horse_id: Optional[int] = None) -> None:
-    with ui.column().classes("w-full max-w-2xl mx-auto p-6 gap-6"):
-        render_nav("/main")
+    content = render_nav("/main")
+    with content:
         ui.label("보유마 조회").classes("text-xl font-medium")
 
-        with ui.row().classes("w-full gap-3"):
+        with ui.row().classes("w-full gap-3 max-w-2xl"):
             species_select = ui.select(
                 options=HORSE_SPECIES, label="마종"
             ).classes("flex-1")
             horse_select = ui.select(options={}, label="마명").classes("flex-1")
             horse_select.disable()
 
-        result_container = ui.column().classes("w-full")
+        result_container = ui.column().classes("w-full max-w-2xl")
 
         def render_empty_state(message: str, icon: str = "search") -> None:
             result_container.clear()
@@ -112,9 +115,6 @@ async def main_page(horse_id: Optional[int] = None) -> None:
                 return
 
             if data is None:
-                # NiceGUI의 run.io_bound은 작업이 취소되거나(페이지 이탈 등) 앱 종료 중이면
-                # 예외 대신 None을 반환한다(공식 문서화된 동작). 이 경우 보여줄 화면도
-                # 없고 사용자도 이미 없을 가능성이 높으니 조용히 종료한다.
                 return
 
             basic_info = scraping_service.extract_basic_info(
@@ -123,8 +123,6 @@ async def main_page(horse_id: Optional[int] = None) -> None:
             try:
                 render_horse_card(horse, basic_info)
             except RuntimeError:
-                # 스크래핑 도중 사용자가 페이지를 떠나 화면(슬롯) 자체가 사라진 경우.
-                # 보여줄 대상이 없으니 조용히 무시한다.
                 pass
 
         async def update_horse_options() -> None:
@@ -160,10 +158,6 @@ async def main_page(horse_id: Optional[int] = None) -> None:
 
         render_empty_state("마종을 먼저 선택하세요")
 
-        # ---- 딥링크 지원: /main?horse_id=42 ----
-        # 스크래핑(외부 네트워크)이 끝날 때까지 페이지 응답 자체를 막으면 안 되므로,
-        # select 값 세팅까지만 동기로 하고 실제 조회는 백그라운드 태스크로 흘려보낸다.
-        # (마명 select의 on_change와 동일한 방식 — 페이지가 이미 뜬 뒤 갱신되는 구조)
         if horse_id is not None:
             horse = await run.io_bound(_repo.get_by_id, horse_id)
             if horse is not None:
