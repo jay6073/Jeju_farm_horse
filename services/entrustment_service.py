@@ -164,14 +164,23 @@ def list_unverified_ended_horses() -> list[str]:
     위탁종료 상태이면서 아래 조건을 만족하는 마번 목록:
     - 경주기록을 한 번도 확인하지 않은 경우
     - 마지막 확인 후 RECHECK_INTERVAL_DAYS일이 지난 경우 (재확인 주기)
+
+    [성능 개선] 말 한 마리당 개별 조회하던 N+1 쿼리를 제거하고,
+    전체 통산요약을 한 번에 가져와 메모리에서 매칭하도록 변경.
     """
     horses = list_horses()
     ended = [h for h in horses if h.status == STATUS_ENDED]
+    if not ended:
+        return []
+
+    all_summaries = repository.list_all_career_summaries_with_horse()
+    summary_map = {s["horse_id"]: s for s in all_summaries}
+
     cutoff = datetime.now() - timedelta(days=RECHECK_INTERVAL_DAYS)
 
     unverified = []
     for h in ended:
-        summary = repository.get_career_summary(h.horse_id)
+        summary = summary_map.get(h.horse_id)
         if summary is None or summary.get("last_scraped_at") is None:
             unverified.append(h.horse_id)
             continue
@@ -186,11 +195,11 @@ def list_unverified_ended_horses() -> list[str]:
 # ── 통계 (년도별 / 신청인별) ────────────────────────────────────────
 
 
-def _is_unverified_race(horse_id: str, status: str) -> bool:
+def _is_unverified_race(horse_id: str, status: str, summary_map: dict) -> bool:
     """위탁종료 상태이면서 경주기록 확인이 안 됐거나 재확인 주기가 지난 경우 True"""
     if status != STATUS_ENDED:
         return False
-    summary = repository.get_career_summary(horse_id)
+    summary = summary_map.get(horse_id)
     if summary is None or summary.get("last_scraped_at") is None:
         return True
 
@@ -220,8 +229,10 @@ def get_statistics_by_year() -> pd.DataFrame:
         )
 
     df = pd.DataFrame(rows)
+    all_summaries = repository.list_all_career_summaries_with_horse()
+    summary_map = {s["horse_id"]: s for s in all_summaries}
     df["_unverified_race"] = df.apply(
-        lambda r: _is_unverified_race(r["horse_id"], r["status"]), axis=1
+        lambda r: _is_unverified_race(r["horse_id"], r["status"], summary_map), axis=1
     )
 
     grouped = (
@@ -260,8 +271,10 @@ def get_statistics_by_applicant() -> pd.DataFrame:
         )
 
     df = pd.DataFrame(rows)
+    all_summaries = repository.list_all_career_summaries_with_horse()
+    summary_map = {s["horse_id"]: s for s in all_summaries}
     df["_unverified_race"] = df.apply(
-        lambda r: _is_unverified_race(r["horse_id"], r["status"]), axis=1
+        lambda r: _is_unverified_race(r["horse_id"], r["status"], summary_map), axis=1
     )
 
     grouped = (
