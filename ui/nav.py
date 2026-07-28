@@ -41,10 +41,11 @@ def render_nav(active_path: str):
     ).props("bordered") as drawer:
         drawer_toggle.on("click", drawer.toggle)
 
-        async def close_drawer_if_mobile() -> None:
-            width = await ui.run_javascript("window.innerWidth")
-            if width < 1024:
-                drawer.hide()
+        def close_drawer_if_mobile() -> None:
+            ui.run_javascript(
+                f"if (window.innerWidth < 1024) {{ getElement({drawer.id}).hide(); }}",
+                respond=False,
+            )gi
 
         for path, label, icon in _PAGES:
             if path is None:
