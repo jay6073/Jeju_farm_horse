@@ -21,8 +21,7 @@ from ui.theme import apply_global_theme
 @ui.page("/")
 def index() -> None:
     apply_global_theme()
-    ui.navigate.to("/main")
-
+    ui.navigate.to("/dashboard")
 
 if __name__ in {"__main__", "__mp_main__"}:
     # Render 등 클라우드 배포 환경은 PORT 환경변수로 실제 포트를 지정해준다.
