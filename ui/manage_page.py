@@ -45,7 +45,7 @@ def manage_page() -> None:
 
 
 def _build_add_section() -> None:
-    with ui.column().classes("w-full gap-3"):
+    with ui.column().classes("w-full max-w-2xl gap-3"):
         name_input = ui.input(label="마명").classes("w-full")
         species_select = ui.select(options=HORSE_SPECIES, label="마종").classes("w-full")
         number_input = ui.input(label="마번 (horsepia 등록번호, 선택)").classes("w-full")
@@ -86,7 +86,7 @@ def _build_add_section() -> None:
 def _build_status_change_section() -> None:
     checked_ids: set[int] = set()
 
-    with ui.column().classes("w-full gap-3"):
+    with ui.column().classes("w-full max-w-2xl gap-3"):
         species_select = ui.select(options=HORSE_SPECIES, label="마종").classes("w-full")
         list_container = ui.column().classes("w-full")
         form_container = ui.column().classes("w-full")
@@ -180,7 +180,7 @@ def _build_status_change_section() -> None:
 def _build_import_section() -> None:
     parsed_rows: list = []
 
-    with ui.column().classes("w-full gap-3"):
+    with ui.column().classes("w-full max-w-2xl gap-3"):
         ui.label(
             "필수 컬럼: 마명, 마종, 등록번호 (품종코드는 선택 컬럼). "
             "등록번호·품종코드는 horsepia URL 값을 그대로 넣으세요."

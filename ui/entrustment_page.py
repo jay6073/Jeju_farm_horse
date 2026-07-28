@@ -92,7 +92,7 @@ def _build_register_section() -> None:
 
 
 def _build_list_section() -> None:
-    with ui.column().classes("w-full gap-3"):
+    with ui.column().classes("w-full max-w-2xl gap-3"):
         status_select = ui.select(options=HORSE_STATUS_OPTIONS, label="상태").classes(
             "w-full max-w-xs"
         )
@@ -115,6 +115,7 @@ def _build_list_section() -> None:
                         ui.label("마명").classes("flex-1")
                         ui.label("신청인").classes("w-32")
                         ui.label("상태").classes("w-24")
+                        ui.label("").classes("w-20")
                     for h in horses:
                         with ui.row().classes(
                             "w-full items-center text-sm py-1.5 px-1 -mx-1 rounded "
@@ -124,15 +125,82 @@ def _build_list_section() -> None:
                             ui.label(h.name or "-").classes("flex-1")
                             ui.label(h.applicant_name or "-").classes("w-32")
                             ui.label(h.status).classes("w-24")
+                            with ui.row().classes("w-20 gap-1"):
+                                ui.button(
+                                    icon="edit",
+                                    on_click=lambda e, horse=h: _open_edit_dialog(horse, render_list),
+                                ).props("flat dense round size=sm")
+                                ui.button(
+                                    icon="delete",
+                                    on_click=lambda e, horse=h: _confirm_delete(horse, render_list),
+                                ).props("flat dense round size=sm color=negative")
 
         status_select.on_value_change(render_list)
         render_list()
 
 
+def _open_edit_dialog(horse, on_done) -> None:
+    with ui.dialog() as dialog, ui.card().classes("w-96"):
+        ui.label(f"위탁 계약 수정 (마번 {horse.horse_id})").classes("text-sm font-medium")
+        applicant_input = ui.input(label="신청인", value=horse.applicant_name or "").classes("w-full")
+        farm_name_input = ui.input(label="목장명", value=horse.farm_name or "").classes("w-full")
+        ui.label("퇴사일").classes("text-sm text-gray-500 -mb-2")
+        farm_out_input = ui.date(value=str(horse.farm_out_date) if horse.farm_out_date else None).classes("w-full")
+        fee_input = ui.number(label="위탁비", value=horse.entrustment_fee).classes("w-full")
+        status_edit_select = ui.select(
+            options=HORSE_STATUS_OPTIONS, value=horse.status, label="상태"
+        ).classes("w-full")
+
+        async def on_confirm() -> None:
+            fields = {
+                "applicant_name": applicant_input.value or None,
+                "farm_name": farm_name_input.value or None,
+                "farm_out_date": farm_out_input.value or None,
+                "entrustment_fee": int(fee_input.value) if fee_input.value else None,
+                "status": status_edit_select.value,
+            }
+            try:
+                await run.io_bound(
+                    entrustment_service.update_horse_fields, horse.horse_id, fields
+                )
+            except EntrustmentServiceError as e:
+                ui.notify(str(e), type="negative")
+                return
+            ui.notify("수정 완료", type="positive")
+            dialog.close()
+            await on_done()
+
+        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            ui.button("취소", on_click=dialog.close).props("flat")
+            ui.button("저장", on_click=on_confirm).props("color=primary")
+    dialog.open()
+
+
+def _confirm_delete(horse, on_done) -> None:
+    with ui.dialog() as dialog, ui.card():
+        ui.label(f"마번 {horse.horse_id}의 위탁 계약을 삭제하시겠습니까?")
+        ui.label("경매/경주기록은 삭제되지 않고 남습니다.").classes("text-xs text-gray-400")
+        with ui.row().classes("w-full justify-end gap-2"):
+            ui.button("취소", on_click=dialog.close).props("flat")
+
+            async def on_confirm() -> None:
+                dialog.close()
+                try:
+                    await run.io_bound(entrustment_service.delete_horse, horse.horse_id)
+                except EntrustmentServiceError as e:
+                    ui.notify(str(e), type="negative")
+                    return
+                ui.notify("삭제 완료", type="positive")
+                await on_done()
+
+            ui.button("삭제", on_click=on_confirm).props("color=negative")
+    dialog.open()
+
+
 def _build_import_section() -> None:
     parsed_result = {"value": None}
 
-    with ui.column().classes("w-full gap-3"):
+    with ui.column().classes("w-full max-w-2xl gap-3"):
         ui.label(
             "필수 컬럼: 마명, 마종, 마번, 신청인 등 위탁 계약 관련 컬럼. "
             "마번이 전체 말 관리(A)에 등록되어 있어야 위탁 계약이 저장됩니다."
