@@ -41,6 +41,11 @@ def render_nav(active_path: str):
     ).props("bordered") as drawer:
         drawer_toggle.on("click", drawer.toggle)
 
+        async def close_drawer_if_mobile() -> None:
+            width = await ui.run_javascript("window.innerWidth")
+            if width < 1024:
+                drawer.hide()
+
         for path, label, icon in _PAGES:
             if path is None:
                 ui.separator().classes("my-2")
@@ -56,10 +61,11 @@ def render_nav(active_path: str):
                 if is_active
                 else " text-gray-500"
             )
-            with ui.link(target=path).classes(classes):
+            with ui.link(target=path).classes(classes) as link:
                 with ui.row().classes("items-center gap-2"):
                     ui.icon(icon).classes("text-base")
                     ui.label(label).classes("text-sm")
+                link.on("click", close_drawer_if_mobile)
 
     content = ui.column().classes("w-full p-6 gap-6")
     return content
