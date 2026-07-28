@@ -1,11 +1,8 @@
 """
-대시보드 화면 (아키텍처 프롬프트 4-3절).
-
-- 오늘 기준(상태='정상') 마종별 두수 카드 5개 + 합계 카드
-- 카드 클릭 시 해당 마종으로 목록 필터링 (다시 클릭하면 필터 해제)
-- 카드 아래 전체 보유마 목록: 마번 / 마명 / 마종 / 상태(+상태발생일자)
-- 마명 검색창, 마명은 ui.link로 렌더링해 /main?horse_id=로 딥링크
-- [통합 시 추가] 위탁 통계 섹션 (entrustment_dashboard_service.overview_kpis)
+대시보드 화면.
+- 마종별 두수 카드 (클릭 시 해당 마종으로 목록 필터링)
+- 위탁 통계 카드 (위탁중/위탁종료/경주기록확인필요, 클릭 시 해당 조건으로 목록 필터링)
+- 목록에서 위수탁마는 위탁중/위탁종료 뱃지로 구분 표시
 """
 from __future__ import annotations
 
@@ -13,14 +10,19 @@ from nicegui import run, ui
 
 from models.horse import HORSE_SPECIES
 from repository.horse_repository import HorseRepository
-from services import dashboard_service, entrustment_dashboard_service
+from services import dashboard_service, entrustment_dashboard_service, entrustment_service
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES, empty_state, status_badge
 
 _repo = HorseRepository()
 
+_ENTRUSTMENT_BADGE_STYLE = {
+    "위탁중": "bg-blue-100 text-blue-700",
+    "위탁종료": "bg-gray-200 text-gray-600",
+}
 
-@ui.page("/dashboard", response_timeout=30)
+
+@ui.page("/dashboard")
 async def dashboard_page() -> None:
     content = render_nav("/dashboard")
     with content:
@@ -29,7 +31,18 @@ async def dashboard_page() -> None:
         counts = await run.io_bound(dashboard_service.get_species_counts, _repo)
         total = sum(counts.values())
 
-        selected_species = {"value": None}
+        all_horses = await run.io_bound(dashboard_service.get_all_horses, _repo)
+        kpis = await run.io_bound(entrustment_dashboard_service.overview_kpis)
+
+        entrustment_horses = await run.io_bound(entrustment_service.list_horses, None)
+        entrustment_status_map = {h.horse_id: h.status for h in entrustment_horses}
+
+        unverified_ids = set(
+            await run.io_bound(entrustment_service.list_unverified_ended_horses)
+        )
+
+        # selected_filter: {"type": "species"|"entrustment"|None, "value": str|None}
+        selected_filter = {"type": None, "value": None}
 
         with ui.row().classes("w-full gap-3 flex-wrap") as card_row:
             pass
@@ -44,45 +57,69 @@ async def dashboard_page() -> None:
         search_input = ui.input(label="마명 검색").classes("w-full max-w-xs")
         list_container = ui.column().classes("w-full")
 
-        all_horses = await run.io_bound(dashboard_service.get_all_horses, _repo)
-        kpis = await run.io_bound(entrustment_dashboard_service.overview_kpis)
-
         def render_species_cards() -> None:
             card_row.clear()
             with card_row:
                 _render_count_card(
-                    "합계", total, highlight=selected_species["value"] is None,
-                    on_click=lambda: select_species(None),
+                    "합계", total,
+                    highlight=selected_filter["type"] is None,
+                    on_click=lambda: select_filter(None, None),
                 )
                 for species in HORSE_SPECIES:
                     _render_count_card(
                         species,
                         counts.get(species, 0),
-                        highlight=selected_species["value"] == species,
-                        on_click=lambda s=species: select_species(s),
+                        highlight=selected_filter == {"type": "species", "value": species},
+                        on_click=lambda s=species: select_filter("species", s),
                     )
 
         def render_entrustment_cards() -> None:
             entrustment_row.clear()
             with entrustment_row:
-                _render_count_card("위탁중", kpis["status_counts"].get("위탁중", 0))
-                _render_count_card("위탁종료", kpis["status_counts"].get("위탁종료", 0))
-                _render_count_card("경주기록확인필요", kpis["unverified_race_count"])
+                _render_count_card(
+                    "위탁중",
+                    kpis["status_counts"].get("위탁중", 0),
+                    highlight=selected_filter == {"type": "entrustment", "value": "위탁중"},
+                    on_click=lambda: select_filter("entrustment", "위탁중"),
+                )
+                _render_count_card(
+                    "위탁종료",
+                    kpis["status_counts"].get("위탁종료", 0),
+                    highlight=selected_filter == {"type": "entrustment", "value": "위탁종료"},
+                    on_click=lambda: select_filter("entrustment", "위탁종료"),
+                )
+                _render_count_card(
+                    "경주기록확인필요",
+                    kpis["unverified_race_count"],
+                    highlight=selected_filter == {"type": "entrustment", "value": "미확인"},
+                    on_click=lambda: select_filter("entrustment", "미확인"),
+                )
 
-        def select_species(species: str | None) -> None:
-            selected_species["value"] = species
+        def select_filter(filter_type: str | None, value: str | None) -> None:
+            selected_filter["type"] = filter_type
+            selected_filter["value"] = value
             render_species_cards()
+            render_entrustment_cards()
             render_list(search_input.value)
 
         def render_list(filter_text: str = "") -> None:
             list_container.clear()
             filter_text = (filter_text or "").strip()
-            species_filter = selected_species["value"]
-            filtered = [
-                h for h in all_horses
-                if (not filter_text or filter_text in h.마명)
-                and (species_filter is None or h.마종 == species_filter)
-            ]
+
+            filtered = [h for h in all_horses if not filter_text or filter_text in h.마명]
+
+            ftype, fvalue = selected_filter["type"], selected_filter["value"]
+            if ftype == "species":
+                filtered = [h for h in filtered if h.마종 == fvalue]
+            elif ftype == "entrustment":
+                if fvalue == "미확인":
+                    filtered = [h for h in filtered if h.마번 in unverified_ids]
+                else:
+                    filtered = [
+                        h for h in filtered
+                        if entrustment_status_map.get(h.마번) == fvalue
+                    ]
+
             with list_container:
                 if not filtered:
                     empty_state("조건에 맞는 보유마가 없습니다", icon="search_off")
@@ -95,7 +132,8 @@ async def dashboard_page() -> None:
                         ui.label("마번").classes("w-28")
                         ui.label("마명").classes("flex-1")
                         ui.label("마종").classes("w-24")
-                        ui.label("상태").classes("w-44")
+                        ui.label("상태").classes("w-32")
+                        ui.label("위탁상태").classes("w-20")
                     for h in filtered:
                         with ui.row().classes(
                             "w-full items-center text-sm py-1.5 px-1 -mx-1 rounded "
@@ -106,11 +144,20 @@ async def dashboard_page() -> None:
                                 "flex-1 text-primary no-underline"
                             )
                             ui.label(h.마종).classes("w-24")
-                            with ui.row().classes("w-44 items-center gap-2"):
+                            with ui.row().classes("w-32 items-center gap-2"):
                                 status_badge(h.상태)
                                 if h.상태 != "정상" and h.상태발생일자:
                                     ui.label(h.상태발생일자).classes(
                                         "text-xs text-gray-400"
+                                    )
+                            entrustment_status = entrustment_status_map.get(h.마번)
+                            with ui.row().classes("w-20"):
+                                if entrustment_status:
+                                    style = _ENTRUSTMENT_BADGE_STYLE.get(
+                                        entrustment_status, "bg-gray-200 text-gray-600"
+                                    )
+                                    ui.label(entrustment_status).classes(
+                                        f"text-xs px-2 py-0.5 rounded-full {style} inline-block"
                                     )
 
         render_species_cards()
