@@ -130,8 +130,18 @@ def set_status(horse_id: str, new_status: str) -> None:
 
 
 def delete_horse(horse_id: str) -> None:
+    """
+    위탁 계약을 삭제한다. 연관된 경매기록/경주기록/통산요약도 함께 삭제한다
+    (실수로 잘못 등록한 위탁 계약을 되돌리는 용도이므로 연쇄 삭제가 자연스럽다).
+    정상 종료된 위탁은 삭제가 아니라 set_status로 '위탁종료' 처리해야 한다.
+    """
     if not repository.horse_exists(horse_id):
         raise EntrustmentServiceError(f"마번 {horse_id}에 해당하는 위탁 계약을 찾을 수 없습니다.")
+
+    for record in repository.list_auction_records(horse_id):
+        repository.delete_auction_record(record["id"])
+    repository.delete_race_records_by_horse(horse_id)
+    repository.delete_career_summary(horse_id)
     repository.delete_horse(horse_id)
 
 

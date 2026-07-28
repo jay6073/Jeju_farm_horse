@@ -177,10 +177,21 @@ def _open_edit_dialog(horse, on_done) -> None:
 
 
 def _confirm_delete(horse, on_done) -> None:
-    with ui.dialog() as dialog, ui.card():
-        ui.label(f"마번 {horse.horse_id}의 위탁 계약을 삭제하시겠습니까?")
-        ui.label("경매/경주기록은 삭제되지 않고 남습니다.").classes("text-xs text-gray-400")
-        with ui.row().classes("w-full justify-end gap-2"):
+    with ui.dialog() as dialog, ui.card().classes("w-96"):
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("warning").classes("text-red-500 text-xl")
+            ui.label("위탁 계약 삭제").classes("text-base font-medium")
+        ui.label(f"마번 {horse.horse_id}({horse.name or '-'})의 위탁 계약을 삭제합니다.").classes(
+            "text-sm mt-2"
+        )
+        ui.label(
+            "⚠️ 연관된 경매기록, 경주기록, 통산요약이 모두 함께 삭제되며 "
+            "이 작업은 되돌릴 수 없습니다."
+        ).classes("text-xs text-red-600 mt-1")
+        ui.label(
+            "정상적으로 위탁이 종료된 경우라면 삭제 대신 상태를 '위탁종료'로 변경하세요."
+        ).classes("text-xs text-gray-400 mt-1")
+        with ui.row().classes("w-full justify-end gap-2 mt-3"):
             ui.button("취소", on_click=dialog.close).props("flat")
 
             async def on_confirm() -> None:
@@ -190,10 +201,10 @@ def _confirm_delete(horse, on_done) -> None:
                 except EntrustmentServiceError as e:
                     ui.notify(str(e), type="negative")
                     return
-                ui.notify("삭제 완료", type="positive")
+                ui.notify("위탁 계약 및 연관 기록 삭제 완료", type="positive")
                 await on_done()
 
-            ui.button("삭제", on_click=on_confirm).props("color=negative")
+            ui.button("정말 삭제", on_click=on_confirm).props("color=negative")
     dialog.open()
 
 

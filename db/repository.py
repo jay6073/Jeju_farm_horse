@@ -298,13 +298,18 @@ def upsert_career_summary(summary_dict: dict[str, Any]) -> None:
                 values,
             )
 
-
 def get_career_summary(horse_id: str) -> Optional[dict[str, Any]]:
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("SELECT * FROM career_summary WHERE horse_id = %s", (horse_id,))
             row = cur.fetchone()
             return dict(row) if row else None
+
+
+def delete_career_summary(horse_id: str) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM career_summary WHERE horse_id = %s", (horse_id,))
 
 
 def list_all_career_summaries_with_horse() -> list[dict[str, Any]]:
@@ -320,7 +325,6 @@ def list_all_career_summaries_with_horse() -> list[dict[str, Any]]:
                 """
             )
             return [dict(r) for r in cur.fetchall()]
-
 
 # ── 통계용 원자료 조회 (집계/가공은 services 레이어에서) ───────────────
 
