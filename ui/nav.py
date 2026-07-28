@@ -45,7 +45,7 @@ def render_nav(active_path: str):
             ui.run_javascript(
                 f"if (window.innerWidth < 1024) {{ getElement({drawer.id}).hide(); }}",
                 respond=False,
-            )gi
+            )
 
         for path, label, icon in _PAGES:
             if path is None:
