@@ -22,7 +22,7 @@ _ENTRUSTMENT_BADGE_STYLE = {
 }
 
 
-@ui.page("/dashboard")
+@ui.page("/dashboard", response_timeout=60)
 async def dashboard_page() -> None:
     content = render_nav("/dashboard")
     with content:
