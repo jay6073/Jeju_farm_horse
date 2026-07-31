@@ -6,6 +6,10 @@
 [통합 시 변경사항] 원래 horse_service.py였으나, "말 개체"는 A의 horses 테이블이
 전담하고 이 파일은 "위탁 계약 정보"(entrustment 테이블)만 다루는 것으로 역할이
 명확해져 entrustment_service.py로 이름을 바꿈. 대상 테이블도 horse -> entrustment.
+
+[A/B 정합성 수정] register_horse/delete_horse가 A의 horses 테이블과 정합성을
+유지하도록 변경: 위수탁마는 위탁 계약을 통해서만 A에 존재하게 되므로,
+등록 시 없으면 생성하고 삭제 시(마종=위수탁마인 경우) 함께 삭제한다.
 """
 from __future__ import annotations
 
@@ -22,7 +26,10 @@ from config.constants import (
 )
 from db import repository
 from models.schemas import Horse
-from repository.horse_repository import _get_connection as _a_get_connection
+from models.horse import Horse as AHorse
+from repository.horse_repository import _get_connection as _a_get_connection, HorseRepository
+
+_a_horse_repo = HorseRepository()
 
 
 def a_horse_exists(horse_id: str) -> bool:
@@ -75,15 +82,36 @@ def register_horse(raw: dict[str, Any], overwrite: bool = False) -> Horse:
     """
     신규 위탁 계약 등록. raw는 UI 폼에서 넘어온 dict.
     status/entrustment_period는 값이 없으면 자동 계산해서 채운다.
-    [통합 시 추가] horse_id가 A의 horses 테이블에 실제로 등록된 말인지 먼저 확인한다.
+    [A/B 정합성 수정] horse_id가 A의 horses 테이블에 없으면, 위수탁마로 새로 생성한다.
+    이 경우 raw에 "horse_name"이 반드시 있어야 한다(신규 위수탁마의 마명).
+    이 horse_name은 A의 horses.마명으로 쓰이는 동시에, entrustment 쪽 Horse 모델이
+    요구하는 필수 필드인 "name"에도 채워 넣는다 (entrustment 테이블 자체엔 저장되지
+    않지만 pydantic 검증 통과를 위해 필요).
+    이미 A에 존재하는 마번(A 자체 소유마 포함)이면 그대로 위탁 계약만 등록한다.
     """
     raw = dict(raw)  # 원본 훼손 방지
 
     horse_id = raw.get("horse_id")
-    if not horse_id or not a_horse_exists(horse_id):
-        raise EntrustmentServiceError(
-            f"마번 {horse_id}는 전체 말 관리(A)에 먼저 등록되어야 위탁 계약을 등록할 수 있습니다."
-        )
+    if not horse_id:
+        raise EntrustmentServiceError("마번은 필수입니다.")
+
+    horse_name = raw.pop("horse_name", None)  # entrustment 테이블 필드가 아니므로 미리 분리
+
+    a_horse = _a_horse_repo.get_by_마번(horse_id)
+    if a_horse is None:
+        if not horse_name:
+            raise EntrustmentServiceError(
+                f"마번 {horse_id}는 전체 말 관리(A)에 등록되어 있지 않습니다. "
+                "신규 위수탁마 등록을 위해 마명을 입력하세요."
+            )
+        _a_horse_repo.insert(AHorse(
+            마번=horse_id,
+            마명=horse_name,
+            마종="위수탁마",
+        ))
+
+    if not raw.get("name") and horse_name:
+        raw["name"] = horse_name
 
     if not raw.get("current_name"):
         raw["current_name"] = raw.get("name")
@@ -133,6 +161,9 @@ def delete_horse(horse_id: str) -> None:
     """
     위탁 계약을 삭제한다. 연관된 경매기록/경주기록/통산요약도 함께 삭제한다
     (실수로 잘못 등록한 위탁 계약을 되돌리는 용도이므로 연쇄 삭제가 자연스럽다).
+    [A/B 정합성 수정] 삭제 대상 마번이 A에서 위수탁마로 분류돼 있다면, A의 horses 행도
+    함께 삭제한다(위수탁마는 entrustment로 인해서만 A에 존재하므로). A 자체 소유마라면
+    horses는 건드리지 않는다.
     정상 종료된 위탁은 삭제가 아니라 set_status로 '위탁종료' 처리해야 한다.
     """
     if not repository.horse_exists(horse_id):
@@ -143,6 +174,10 @@ def delete_horse(horse_id: str) -> None:
     repository.delete_race_records_by_horse(horse_id)
     repository.delete_career_summary(horse_id)
     repository.delete_horse(horse_id)
+
+    a_horse = _a_horse_repo.get_by_마번(horse_id)
+    if a_horse and a_horse.마종 == "위수탁마":
+        _a_horse_repo.delete_by_마번(horse_id)
 
 
 def get_horse(horse_id: str) -> Optional[Horse]:

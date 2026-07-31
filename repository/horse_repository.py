@@ -211,6 +211,13 @@ class HorseRepository:
                 row = cur.fetchone()
                 return _row_to_horse(row) if row else None
 
+    def get_by_마번(self, 마번: str) -> Optional[Horse]:
+        with _get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("SELECT * FROM horses WHERE 마번 = %s", (마번,))
+                row = cur.fetchone()
+                return _row_to_horse(row) if row else None
+
     def get_active_names_by_species(self, species: str) -> list[Horse]:
         if species not in HORSE_SPECIES:
             raise ValueError(f"유효하지 않은 마종입니다: {species!r}")
@@ -298,4 +305,12 @@ class HorseRepository:
                     "UPDATE horses SET 품종코드 = %s WHERE id = %s",
                     (품종코드, horse_id),
                 )
+                return cur.rowcount
+
+    # ---------- 삭제 ----------
+
+    def delete_by_마번(self, 마번: str) -> int:
+        with _get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM horses WHERE 마번 = %s", (마번,))
                 return cur.rowcount

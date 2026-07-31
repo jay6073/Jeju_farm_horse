@@ -20,9 +20,12 @@ import pandas as pd
 from adapters import excel_adapter
 from db import repository
 from models.schemas import Horse
-from services.entrustment_service import a_horse_exists, _ENTRUSTMENT_FIELDS
+from services.entrustment_service import _ENTRUSTMENT_FIELDS
 from pydantic import ValidationError
+from models.horse import Horse as AHorse
+from repository.horse_repository import HorseRepository
 
+_a_horse_repo = HorseRepository()
 
 @dataclass
 class ImportResult:
@@ -74,14 +77,6 @@ def import_horses_from_excel(file, overwrite_existing: bool = False) -> ImportRe
         horse_dict = parsed.horse
         horse_id = horse_dict["horse_id"]
 
-        # [통합 시 추가] A의 horses에 없는 마번은 위탁 계약을 등록할 수 없으므로 스킵
-        if not a_horse_exists(horse_id):
-            result.skipped_count += 1
-            result.skip_details.append(
-                f"{parsed.row_number}행 (마번 {horse_id}): 전체 말 관리(A)에 등록되지 않은 마번 - 먼저 A에서 등록 필요"
-            )
-            continue
-
         try:
             horse_model = Horse(**horse_dict)
         except ValidationError as e:
@@ -89,6 +84,24 @@ def import_horses_from_excel(file, overwrite_existing: bool = False) -> ImportRe
             result.skipped_count += 1
             result.skip_details.append(
                 f"{parsed.row_number}행 (마번 {horse_id}): 검증 오류 - {'; '.join(messages)}"
+            )
+            continue
+
+        # [A/B 정합성 수정] A에 마번이 없으면, 엑셀의 마명으로 위수탁마를 새로 생성한다
+        # (개별 등록의 register_horse()와 동일한 정책).
+        a_horse = _a_horse_repo.get_by_마번(horse_id)
+        if a_horse is None:
+            _a_horse_repo.insert(AHorse(
+                마번=horse_id,
+                마명=horse_model.name,
+                마종="위수탁마",
+            ))
+
+        already_exists = repository.horse_exists(horse_id)
+        if already_exists and not overwrite_existing:
+            result.skipped_count += 1
+            result.skip_details.append(
+                f"{parsed.row_number}행 (마번 {horse_id}): 이미 위탁 계약이 존재함 (덮어쓰기 미선택으로 스킵)"
             )
             continue
 

@@ -38,6 +38,7 @@ def entrustment_page() -> None:
 def _build_register_section() -> None:
     with ui.column().classes("w-full max-w-2xl gap-3"):
         horse_id_input = ui.input(label="마번 (7자리)").classes("w-full")
+        name_input = ui.input(label="마명").classes("w-full")   # 추가
         applicant_input = ui.input(label="신청인").classes("w-full")
         farm_name_input = ui.input(label="목장명").classes("w-full")
         farm_in_input = ui.input(label="입사일").props("type=date").classes("w-full")
@@ -47,6 +48,7 @@ def _build_register_section() -> None:
 
         def reset_form() -> None:
             horse_id_input.value = ""
+            name_input.value = ""   # 추가
             applicant_input.value = ""
             farm_name_input.value = ""
             farm_in_input.value = ""
@@ -58,17 +60,13 @@ def _build_register_section() -> None:
             if not horse_id_input.value:
                 ui.notify("마번은 필수입니다.", type="warning")
                 return
-
-            exists = await run.io_bound(a_horse_exists, horse_id_input.value)
-            if not exists:
-                ui.notify(
-                    f"마번 {horse_id_input.value}는 전체 말 관리(A)에 먼저 등록되어야 합니다.",
-                    type="negative",
-                )
+            if not name_input.value:                          # 추가
+                ui.notify("마명은 필수입니다.", type="warning")
                 return
 
             raw = {
                 "horse_id": horse_id_input.value,
+                "horse_name": name_input.value,                # 추가
                 "applicant_name": applicant_input.value or None,
                 "farm_name": farm_name_input.value or None,
                 "farm_in_date": farm_in_input.value or None,
