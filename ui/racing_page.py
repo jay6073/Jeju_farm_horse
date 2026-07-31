@@ -77,48 +77,76 @@ async def racing_page() -> None:
                 total_wins_sum = sum(s.get("total_wins") or 0 for s in summaries)
                 total_prize_sum = sum(s.get("total_prize_money") or 0 for s in summaries)
 
-                with ui.card().classes(CARD_CLASSES + " p-4"):
-                    with ui.row().classes(
-                            "w-full text-xs text-gray-400 font-medium bg-gray-50 rounded-t-md "
-                            "px-2 py-1 -mt-4 -mx-4 mb-2"
-                    ):
-                        ui.label("마번").classes("w-28")
-                        ui.label("마명").classes("w-28")
-                        ui.label("위탁자").classes("flex-1")
-                        ui.label("출주").classes("w-14 text-right")
-                        ui.label("1위").classes("w-14 text-right")
-                        ui.label("승률").classes("w-16 text-right")
-                        ui.label("총상금").classes("w-28 text-right")
-                        ui.label("최종확인일").classes("w-24 text-right")
-
+                # ── 모바일 전용: 컴팩트 카드 리스트 (핵심 4컬럼만, 스크롤 없음) ──
+                with ui.column().classes("w-full gap-2 sm:hidden"):
                     for s in summaries:
-                        with ui.row().classes(
-                                "w-full items-center text-sm py-1.5 px-1 -mx-1 rounded "
-                                "border-b border-gray-100 hover:bg-gray-50"
-                        ):
-                            ui.label(s.get("horse_id") or "-").classes("w-28 text-gray-500")
-                            ui.label(s.get("horse_name") or "-").classes("w-28")
-                            ui.label(s.get("applicant_name") or "-").classes("flex-1 text-gray-500")
-                            ui.label(str(s.get("total_starts") or 0)).classes("w-14 text-right")
-                            ui.label(str(s.get("total_wins") or 0)).classes("w-14 text-right")
-                            ui.label(f"{s.get('win_rate') or 0}%").classes("w-16 text-right")
-                            ui.label(f"{s.get('total_prize_money') or 0:,}원").classes("w-28 text-right")
-                            ui.label(_format_scraped_date(s.get("last_scraped_at"))).classes(
-                                "w-24 text-right text-xs text-gray-400"
-                            )
+                        with ui.card().classes(CARD_CLASSES + " p-3"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                ui.label(s.get("horse_name") or "-").classes("font-medium")
+                                ui.label(f"{s.get('total_prize_money') or 0:,}원").classes(
+                                    "text-sm text-amber-700 font-medium"
+                                )
+                            with ui.row().classes("w-full items-center gap-3 text-xs text-gray-500 mt-1"):
+                                ui.label(f"출주 {s.get('total_starts') or 0}")
+                                ui.label(f"1위 {s.get('total_wins') or 0}")
+                                ui.label(f"승률 {s.get('win_rate') or 0}%")
+                            ui.label(
+                                f"최종확인 {_format_scraped_date(s.get('last_scraped_at'))}"
+                            ).classes("text-xs text-gray-400 mt-1")
 
-                    with ui.row().classes(
-                            "w-full items-center text-sm font-medium py-2 px-1 -mx-1 mt-1 "
-                            "border-t-2 border-gray-300 bg-gray-50 rounded-b-md"
-                    ):
-                        ui.label(f"총 {total_horses}두").classes("w-28")
-                        ui.label("").classes("w-28")
-                        ui.label("").classes("flex-1")
-                        ui.label(str(total_starts_sum)).classes("w-14 text-right")
-                        ui.label(str(total_wins_sum)).classes("w-14 text-right")
-                        ui.label("").classes("w-16 text-right")
-                        ui.label(f"{total_prize_sum:,}원").classes("w-28 text-right")
-                        ui.label("").classes("w-24 text-right")
+                    # 모바일 합계 카드
+                    with ui.card().classes(CARD_CLASSES + " p-3 bg-gray-50"):
+                        with ui.row().classes("w-full items-center justify-between font-medium"):
+                            ui.label(f"총 {total_horses}두")
+                            ui.label(f"{total_prize_sum:,}원").classes("text-amber-700")
+                        with ui.row().classes("w-full items-center gap-3 text-xs text-gray-500 mt-1"):
+                            ui.label(f"출주 {total_starts_sum}")
+                            ui.label(f"1위 {total_wins_sum}")
+
+                # ── PC/태블릿 전용: 전체 표 (가로 스크롤, 전체 컬럼) ──
+                with ui.card().classes(CARD_CLASSES + " p-4 overflow-x-auto hidden sm:block"):
+                    with ui.column().classes("min-w-[640px]"):
+                        with ui.row().classes(
+                                "w-full text-xs text-gray-400 font-medium bg-gray-50 rounded-t-md "
+                                "px-2 py-1 -mt-4 -mx-4 mb-2"
+                        ):
+                            ui.label("마번").classes("w-28")
+                            ui.label("마명").classes("w-28")
+                            ui.label("위탁자").classes("flex-1")
+                            ui.label("출주").classes("w-14 text-right")
+                            ui.label("1위").classes("w-14 text-right")
+                            ui.label("승률").classes("w-16 text-right")
+                            ui.label("총상금").classes("w-28 text-right")
+                            ui.label("최종확인일").classes("w-24 text-right")
+
+                        for s in summaries:
+                            with ui.row().classes(
+                                    "w-full items-center text-sm py-1.5 px-1 -mx-1 rounded "
+                                    "border-b border-gray-100 hover:bg-gray-50"
+                            ):
+                                ui.label(s.get("horse_id") or "-").classes("w-28 text-gray-500")
+                                ui.label(s.get("horse_name") or "-").classes("w-28")
+                                ui.label(s.get("applicant_name") or "-").classes("flex-1 text-gray-500")
+                                ui.label(str(s.get("total_starts") or 0)).classes("w-14 text-right")
+                                ui.label(str(s.get("total_wins") or 0)).classes("w-14 text-right")
+                                ui.label(f"{s.get('win_rate') or 0}%").classes("w-16 text-right")
+                                ui.label(f"{s.get('total_prize_money') or 0:,}원").classes("w-28 text-right")
+                                ui.label(_format_scraped_date(s.get("last_scraped_at"))).classes(
+                                    "w-24 text-right text-xs text-gray-400"
+                                )
+
+                        with ui.row().classes(
+                                "w-full items-center text-sm font-medium py-2 px-1 -mx-1 mt-1 "
+                                "border-t-2 border-gray-300 bg-gray-50 rounded-b-md"
+                        ):
+                            ui.label(f"총 {total_horses}두").classes("w-28")
+                            ui.label("").classes("w-28")
+                            ui.label("").classes("flex-1")
+                            ui.label(str(total_starts_sum)).classes("w-14 text-right")
+                            ui.label(str(total_wins_sum)).classes("w-14 text-right")
+                            ui.label("").classes("w-16 text-right")
+                            ui.label(f"{total_prize_sum:,}원").classes("w-28 text-right")
+                            ui.label("").classes("w-24 text-right")
 
         await render_summary_table()
 
