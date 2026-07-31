@@ -40,33 +40,54 @@ async def racing_page() -> None:
             refresh_button = ui.button("경주기록 확인 (전체)", icon="refresh").props(
                 "color=primary"
             )
+            refresh_spinner = ui.spinner(size="1.5rem").props("color=primary")
+            refresh_spinner.visible = False
             progress_label = ui.label("").classes("text-sm text-gray-500")
+
+        progress_bar = ui.linear_progress(value=0, show_value=False).classes("w-full")
+        progress_bar.visible = False
 
         result_container = ui.column().classes("w-full")
 
         async def on_refresh() -> None:
             refresh_button.disable()
+            refresh_spinner.visible = True
+            progress_bar.visible = True
+            progress_bar.value = 0
+            progress_label.set_text("대상 조회 중...")
             result_container.clear()
 
             def on_progress(current: int, total: int, horse_id: str) -> None:
+                ratio = current / total if total > 0 else 0
+                progress_bar.value = ratio
                 progress_label.set_text(f"{current}/{total} 처리 중 (마번 {horse_id})")
 
             result = await run.io_bound(
                 racing_service.refresh_all_racehorses, progress_callback=on_progress
             )
+
+            progress_bar.visible = False
+            refresh_spinner.visible = False
             progress_label.set_text("")
             refresh_button.enable()
 
             with result_container:
-                with ui.card().classes(CARD_CLASSES + " p-4"):
-                    ui.label(
-                        f"대상 {result.total_targets}건 · 성공 {result.success_count}건 · "
-                        f"경주이력없음 {result.no_race_history_count}건 · 실패 {result.failed_count}건"
-                    ).classes("text-sm")
-                    if result.failed_details:
-                        ui.label("실패 상세").classes("text-xs font-medium text-gray-600 mt-2")
-                        for detail in result.failed_details:
-                            ui.label(detail).classes("text-xs text-red-600")
+                if result.total_targets == 0:
+                    with ui.card().classes(CARD_CLASSES + " p-4"):
+                        ui.label(
+                            "재확인 대상이 없습니다. (위탁종료된 말 중 최근 7일 이내 "
+                            "이미 확인된 말만 있어 스크래핑을 건너뛰었습니다)"
+                        ).classes("text-sm text-gray-500")
+                else:
+                    with ui.card().classes(CARD_CLASSES + " p-4"):
+                        ui.label(
+                            f"대상 {result.total_targets}건 · 성공 {result.success_count}건 · "
+                            f"경주이력없음 {result.no_race_history_count}건 · 실패 {result.failed_count}건"
+                        ).classes("text-sm")
+                        if result.failed_details:
+                            ui.label("실패 상세").classes("text-xs font-medium text-gray-600 mt-2")
+                            for detail in result.failed_details:
+                                ui.label(detail).classes("text-xs text-red-600")
 
         refresh_button.on_click(on_refresh)
 

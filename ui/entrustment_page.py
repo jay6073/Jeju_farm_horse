@@ -40,10 +40,8 @@ def _build_register_section() -> None:
         horse_id_input = ui.input(label="마번 (7자리)").classes("w-full")
         applicant_input = ui.input(label="신청인").classes("w-full")
         farm_name_input = ui.input(label="목장명").classes("w-full")
-        ui.label("입사일").classes("text-sm text-gray-500 -mb-2")
-        farm_in_input = ui.date().classes("w-full")
-        ui.label("퇴사일 (선택)").classes("text-sm text-gray-500 -mb-2")
-        farm_out_input = ui.date().classes("w-full")
+        farm_in_input = ui.input(label="입사일").props("type=date").classes("w-full")
+        farm_out_input = ui.input(label="퇴사일 (선택)").props("type=date").classes("w-full")
         fee_input = ui.number(label="위탁비 (부가세포함)").classes("w-full")
         year_input = ui.number(label="사업연도").classes("w-full")
 
@@ -51,8 +49,8 @@ def _build_register_section() -> None:
             horse_id_input.value = ""
             applicant_input.value = ""
             farm_name_input.value = ""
-            farm_in_input.value = None
-            farm_out_input.value = None
+            farm_in_input.value = ""
+            farm_out_input.value = ""
             fee_input.value = None
             year_input.value = None
 
@@ -144,8 +142,10 @@ def _open_edit_dialog(horse, on_done) -> None:
         ui.label(f"위탁 계약 수정 (마번 {horse.horse_id})").classes("text-sm font-medium")
         applicant_input = ui.input(label="신청인", value=horse.applicant_name or "").classes("w-full")
         farm_name_input = ui.input(label="목장명", value=horse.farm_name or "").classes("w-full")
-        ui.label("퇴사일").classes("text-sm text-gray-500 -mb-2")
-        farm_out_input = ui.date(value=str(horse.farm_out_date) if horse.farm_out_date else None).classes("w-full")
+        farm_out_input = ui.input(
+            label="퇴사일",
+            value=str(horse.farm_out_date) if horse.farm_out_date else "",
+        ).props("type=date").classes("w-full")
         fee_input = ui.number(label="위탁비", value=horse.entrustment_fee).classes("w-full")
         status_edit_select = ui.select(
             options=HORSE_STATUS_OPTIONS, value=horse.status, label="상태"

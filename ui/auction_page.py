@@ -39,8 +39,7 @@ def _build_register_section(list_container_ref: dict) -> None:
         auction_name_input = ui.select(
             options=["낙찰", "유찰", "미상장"], label="경매 결과"
         ).classes("w-full")
-        ui.label("경매일").classes("text-sm text-gray-500 -mb-2")
-        auction_date_input = ui.date().classes("w-full")
+        auction_date_input = ui.input(label="경매일").props("type=date").classes("w-full")
         price_input = ui.number(label="낙찰가 (선택)").classes("w-full")
         buyer_input = ui.input(label="매수인 (선택)").classes("w-full")
         is_final_checkbox = ui.checkbox("최종 낙찰 건으로 지정")
@@ -48,7 +47,7 @@ def _build_register_section(list_container_ref: dict) -> None:
         def reset_form() -> None:
             horse_id_input.value = ""
             auction_name_input.value = None
-            auction_date_input.value = None
+            auction_date_input.value = ""  # None → ""
             price_input.value = None
             buyer_input.value = ""
             is_final_checkbox.value = False
@@ -73,7 +72,7 @@ def _build_register_section(list_container_ref: dict) -> None:
                 await run.io_bound(
                     auction_service.add_auction_record,
                     horse_id_input.value,
-                    auction_date_input.value,
+                    auction_date_input.value or None,  # 여기 or None 추가
                     auction_name_input.value or None,
                     int(price_input.value) if price_input.value else None,
                     buyer_input.value or None,

@@ -131,9 +131,9 @@ def _build_status_change_section() -> None:
                         status_select = ui.select(
                             options=NON_NORMAL_STATUSES, label="상태"
                         ).classes("flex-1")
-                        date_input = ui.date(value=date.today().isoformat()).classes(
-                            "flex-1"
-                        )
+                        date_input = ui.input(
+                            label="발생일자", value=date.today().isoformat()
+                        ).props("type=date").classes("flex-1")
 
                     def on_change_status() -> None:
                         ids = list(checked_ids)
