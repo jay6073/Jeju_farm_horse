@@ -11,6 +11,17 @@ from services import racing_service
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES, empty_state
 
+ui.add_head_html('''
+<style>
+  .mobile-card-list { display: flex; }
+  .desktop-table-card { display: none; }
+  @media (min-width: 640px) {
+    .mobile-card-list { display: none !important; }
+    .desktop-table-card { display: block !important; }
+  }
+</style>
+''', shared=True)
+
 def _format_scraped_date(value) -> str:
     """last_scraped_at (datetime 객체 또는 문자열)을 YYYY-MM-DD로 표시."""
     if value is None:
@@ -67,6 +78,7 @@ async def racing_page() -> None:
         async def render_summary_table() -> None:
             summary_container.clear()
             summaries = await run.io_bound(racing_service.list_all_career_summaries)
+            summaries = sorted(summaries, key=lambda s: s.get("horse_name") or "")
             with summary_container:
                 if not summaries:
                     empty_state("아직 수집된 경주성적이 없습니다", icon="flag")
@@ -78,7 +90,7 @@ async def racing_page() -> None:
                 total_prize_sum = sum(s.get("total_prize_money") or 0 for s in summaries)
 
                 # ── 모바일 전용: 컴팩트 카드 리스트 (핵심 4컬럼만, 스크롤 없음) ──
-                with ui.column().classes("w-full gap-2 sm:hidden"):
+                with ui.column().classes("w-full gap-2 mobile-card-list"):
                     for s in summaries:
                         with ui.card().classes(CARD_CLASSES + " p-3"):
                             with ui.row().classes("w-full items-center justify-between"):
@@ -104,7 +116,7 @@ async def racing_page() -> None:
                             ui.label(f"1위 {total_wins_sum}")
 
                 # ── PC/태블릿 전용: 전체 표 (가로 스크롤, 전체 컬럼) ──
-                with ui.card().classes(CARD_CLASSES + " p-4 overflow-x-auto hidden sm:block"):
+                with ui.card().classes(CARD_CLASSES + " p-4 overflow-x-auto desktop-table-card"):
                     with ui.column().classes("min-w-[640px]"):
                         with ui.row().classes(
                                 "w-full text-xs text-gray-400 font-medium bg-gray-50 rounded-t-md "
