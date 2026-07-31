@@ -54,6 +54,11 @@ async def dashboard_page() -> None:
 
         ui.separator()
 
+        with ui.row().classes("w-full gap-3 flex-wrap") as race_stats_row:
+            pass
+
+        ui.separator()
+
         search_input = ui.input(label="마명 검색").classes("w-full max-w-xs")
         list_container = ui.column().classes("w-full")
 
@@ -95,11 +100,18 @@ async def dashboard_page() -> None:
                     on_click=lambda: select_filter("entrustment", "미확인"),
                 )
 
+        def render_race_stat_cards() -> None:
+            race_stats_row.clear()
+            with race_stats_row:
+                _render_stat_card("1위 두수 합계", f"{kpis['total_race_wins']}두")
+                _render_stat_card("전체 상금 합계", f"{kpis['total_prize_money']:,}원")
+
         def select_filter(filter_type: str | None, value: str | None) -> None:
             selected_filter["type"] = filter_type
             selected_filter["value"] = value
             render_species_cards()
             render_entrustment_cards()
+            render_race_stat_cards()
             render_list(search_input.value)
 
         def render_list(filter_text: str = "") -> None:
@@ -184,3 +196,11 @@ def _render_count_card(
     with card:
         ui.label(label).classes("text-xs text-gray-500")
         ui.label(str(count)).classes(text_classes)
+
+def _render_stat_card(label: str, value: str) -> None:
+    """클릭 필터가 없는 순수 통계 카드 (경주성적 합계용)."""
+    with ui.column().classes(
+        "rounded-lg p-4 gap-1 border bg-amber-50 border-amber-200"
+    ).style("min-width: 120px;"):
+        ui.label(label).classes("text-xs text-gray-500")
+        ui.label(value).classes("text-2xl font-medium text-amber-700")
