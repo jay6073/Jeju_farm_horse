@@ -111,3 +111,25 @@ def _record_to_db_dict(record: AuctionRecord) -> dict[str, Any]:
 def _format_validation_error(e: ValidationError) -> str:
     messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
     return "입력값 오류 - " + "; ".join(messages)
+
+def get_auction_summary(status: str | None = None) -> dict[str, Any]:
+    """
+    경매기록 요약: 전체 두수 / 낙찰 두수 / 낙찰가 합계.
+    두수는 auction_record 건수가 아니라 마번(horse_id) 기준 유니크 카운트.
+    한 말에 유찰/낙찰이 여러 건 있어도 1두로 집계된다.
+    status가 주어지면 해당 위탁상태(위탁중/위탁종료)의 말로 한정.
+    """
+    records = repository.list_all_auction_records_with_horse()
+
+    if status:
+        records = [r for r in records if r.get("horse_status") == status]
+
+    total_horses = {r["horse_id"] for r in records}
+    won_records = [r for r in records if r.get("auction_name") == "낙찰"]
+    won_horses = {r["horse_id"] for r in won_records}
+
+    return {
+        "total_count": len(total_horses),
+        "won_count": len(won_horses),
+        "total_price": sum(r["hammer_price"] for r in won_records),
+    }
