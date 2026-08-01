@@ -93,7 +93,16 @@ async def racing_page() -> None:
 
         ui.separator()
 
-        ui.label("전체 통산성적 요약").classes("text-sm text-gray-500")
+        with ui.row().classes("w-full items-center justify-between"):
+            ui.label("전체 통산성적 요약").classes("text-sm text-gray-500")
+
+            async def on_export_excel() -> None:
+                excel_bytes = await run.io_bound(racing_service.export_career_summary_excel)
+                ui.download(excel_bytes, filename="통산경주성적요약.xlsx")
+
+            ui.button("엑셀 다운로드", icon="download", on_click=on_export_excel).props(
+                "outline color=primary size=sm"
+            )
         summary_container = ui.column().classes("w-full")
 
         async def render_summary_table() -> None:

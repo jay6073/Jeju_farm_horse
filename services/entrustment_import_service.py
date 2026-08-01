@@ -105,14 +105,6 @@ def import_horses_from_excel(file, overwrite_existing: bool = False) -> ImportRe
             )
             continue
 
-        already_exists = repository.horse_exists(horse_id)
-        if already_exists and not overwrite_existing:
-            result.skipped_count += 1
-            result.skip_details.append(
-                f"{parsed.row_number}행 (마번 {horse_id}): 이미 위탁 계약이 존재함 (덮어쓰기 미선택으로 스킵)"
-            )
-            continue
-
         db_dict = _horse_model_to_entrustment_dict(horse_model)
         repository.upsert_horse(db_dict)
 

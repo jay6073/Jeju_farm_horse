@@ -20,6 +20,10 @@ from services import import_service
 from services.import_service import ImportValidationError
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES, empty_state, status_badge
+from models.horse import HORSE_SPECIES, NON_NORMAL_STATUSES, Horse
+
+# 위수탁마는 위탁 계약(entrustment_page.py)을 통해서만 등록 가능 — 개별 추가에서는 제외
+MANAGEABLE_SPECIES = [s for s in HORSE_SPECIES if s != "위수탁마"]
 
 _repo = HorseRepository()
 
@@ -47,13 +51,16 @@ def manage_page() -> None:
 def _build_add_section() -> None:
     with ui.column().classes("w-full max-w-2xl gap-3"):
         name_input = ui.input(label="마명").classes("w-full")
-        species_select = ui.select(options=HORSE_SPECIES, label="마종").classes("w-full")
+        species_select = ui.select(options=MANAGEABLE_SPECIES, label="마종").classes("w-full")
         number_input = ui.input(label="마번 (horsepia 등록번호, 선택)").classes("w-full")
         breed_input = ui.input(label="품종코드 (선택)").classes("w-full")
         ui.label(
             "horsepia에서 이 말의 상세 페이지를 열어 URL의 hrsGbCd 값을 그대로 복사해 넣으세요. "
             "비워두면 조회 시 자동으로 찾아 저장됩니다."
         ).classes("text-xs text-gray-400")
+        ui.label(
+            "위수탁마는 여기서 등록할 수 없습니다. 위탁 계약 등록 화면을 이용하세요."
+        ).classes("text-xs text-amber-600")
 
         def reset_form() -> None:
             name_input.value = ""
@@ -87,7 +94,7 @@ def _build_status_change_section() -> None:
     checked_ids: set[int] = set()
 
     with ui.column().classes("w-full max-w-2xl gap-3"):
-        species_select = ui.select(options=HORSE_SPECIES, label="마종").classes("w-full")
+        species_select = ui.select(options=MANAGEABLE_SPECIES, label="마종").classes("w-full")
         list_container = ui.column().classes("w-full")
         form_container = ui.column().classes("w-full")
 

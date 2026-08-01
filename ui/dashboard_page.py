@@ -10,7 +10,7 @@ from nicegui import run, ui
 
 from models.horse import HORSE_SPECIES
 from repository.horse_repository import HorseRepository
-from services import dashboard_service, entrustment_dashboard_service, entrustment_service
+from services import dashboard_service, entrustment_dashboard_service, entrustment_service, racing_service
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES, empty_state, status_badge
 
@@ -100,11 +100,24 @@ async def dashboard_page() -> None:
                     on_click=lambda: select_filter("entrustment", "미확인"),
                 )
 
+        def _filtered_horse_ids() -> set[str]:
+            ftype, fvalue = selected_filter["type"], selected_filter["value"]
+            horses = all_horses
+            if ftype == "species":
+                horses = [h for h in horses if h.마종 == fvalue]
+            elif ftype == "entrustment":
+                if fvalue == "미확인":
+                    horses = [h for h in horses if h.마번 in unverified_ids]
+                else:
+                    horses = [h for h in horses if entrustment_status_map.get(h.마번) == fvalue]
+            return {h.마번 for h in horses}
+
         def render_race_stat_cards() -> None:
             race_stats_row.clear()
+            stats = racing_service.get_race_stats_for_horse_ids(_filtered_horse_ids())
             with race_stats_row:
-                _render_stat_card("1위 두수 합계", f"{kpis['total_race_wins']}두")
-                _render_stat_card("전체 상금 합계", f"{kpis['total_prize_money']:,}원")
+                _render_stat_card("1위 두수 합계", f"{stats['total_race_wins']}두")
+                _render_stat_card("전체 상금 합계", f"{stats['total_prize_money']:,}원")
 
         def select_filter(filter_type: str | None, value: str | None) -> None:
             selected_filter["type"] = filter_type

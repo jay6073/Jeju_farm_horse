@@ -92,6 +92,8 @@ def parse_excel(file_bytes: bytes, repository) -> list[ImportRow]:
             error = "마명이 비어 있습니다."
         elif 마종 not in HORSE_SPECIES:
             error = f"유효하지 않은 마종입니다: {마종!r} (허용값: {', '.join(HORSE_SPECIES)})"
+        elif 마종 == "위수탁마":
+            error = "위수탁마는 엑셀 일괄 등록으로 추가할 수 없습니다. 위탁 계약 등록 화면을 이용하세요."
         elif 품종코드 is not None and not (품종코드.isdigit() and len(품종코드) == 5):
             error = f"품종코드 형식이 올바르지 않습니다: {품종코드!r} (5자리 숫자)"
 

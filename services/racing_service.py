@@ -28,6 +28,7 @@ from config.constants import STATUS_ENDED
 from db import repository
 from repository.horse_repository import _get_connection as _a_get_connection
 from psycopg.rows import dict_row
+from typing import Any
 
 REQUEST_DELAY_SECONDS = 0.7
 RECHECK_INTERVAL_DAYS = 7  # 위탁종료된 말은 이 기간마다 경주기록을 다시 확인한다
@@ -165,3 +166,68 @@ def get_race_records_with_horse_name(horse_id: str) -> list[dict]:
                 (horse_id,),
             )
             return [dict(r) for r in cur.fetchall()]
+
+def get_race_stats_for_horse_ids(horse_ids: set[str]) -> dict[str, Any]:
+    """주어진 마번 집합에 한정된 1위 두수 합계 / 전체 상금 합계."""
+    summaries = repository.list_all_career_summaries_with_horse()
+    filtered = [s for s in summaries if s["horse_id"] in horse_ids]
+    return {
+        "total_race_wins": sum(s.get("total_wins") or 0 for s in filtered),
+        "total_prize_money": sum(s.get("total_prize_money") or 0 for s in filtered),
+    }
+
+import io
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+
+_EXPORT_COLUMNS = [
+    ("마번", "horse_id"),
+    ("마명", "horse_name"),
+    ("위탁자", "applicant_name"),
+    ("출주", "total_starts"),
+    ("1위", "total_wins"),
+    ("승률(%)", "win_rate"),
+    ("총상금", "total_prize_money"),
+    ("최종확인일", "last_scraped_at"),
+]
+
+
+def _format_scraped_date(value) -> str:
+    if value is None:
+        return "-"
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    return str(value)[:10]
+
+
+def export_career_summary_excel() -> bytes:
+    """
+    전체 통산성적 요약(racing_page.py 표와 동일 데이터/정렬)을 엑셀 바이트로 생성한다.
+    이 엑셀은 조회 전용 출력물이며, 엑셀 일괄 등록(import_service.py)의 입력 템플릿과는
+    무관하다 — 다시 업로드해서 반영하는 용도가 아니다.
+    """
+    summaries = list_all_career_summaries()
+    summaries = sorted(summaries, key=lambda s: s.get("horse_name") or "")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "통산성적요약"
+
+    headers = [label for label, _ in _EXPORT_COLUMNS]
+    ws.append(headers)
+
+    for s in summaries:
+        row = []
+        for label, key in _EXPORT_COLUMNS:
+            value = s.get(key)
+            if key == "last_scraped_at":
+                value = _format_scraped_date(value)
+            row.append(value if value is not None else "")
+        ws.append(row)
+
+    for i in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(i)].width = 16
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

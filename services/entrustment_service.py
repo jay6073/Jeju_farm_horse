@@ -26,14 +26,16 @@ from config.constants import (
 )
 from db import repository
 from models.schemas import Horse
-from models.horse import Horse as AHorse
+from models.horse import Horse as AHorse, STATUS_NORMAL
 from repository.horse_repository import _get_connection as _a_get_connection, HorseRepository
+from shared.horse_number import normalize_horse_number
 
 _a_horse_repo = HorseRepository()
 
 
 def a_horse_exists(horse_id: str) -> bool:
     """A의 horses 테이블(전체 말 관리)에 해당 마번이 존재하는지 확인."""
+    horse_id = normalize_horse_number(horse_id)
     with _a_get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM horses WHERE 마번 = %s", (horse_id,))
@@ -74,6 +76,30 @@ def compute_entrustment_period(
     months = max(months, 0)
     return f"{months}개월"
 
+_A_STATUS_ENTRUSTMENT_ENDED = "위수탁종료"
+
+
+def _sync_a_horse_status(horse_id: str, entrustment_status: str, farm_out_date) -> None:
+    a_horse = _a_horse_repo.get_by_마번(horse_id)
+    if a_horse is None or a_horse.마종 != "위수탁마":
+        return
+
+    if entrustment_status == STATUS_ENTRUSTED:
+        # update_status_bulk는 상태=정상으로의 복귀를 허용하지 않으므로 직접 SQL 실행
+        with _a_get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE horses SET 상태 = %s, 상태발생일자 = NULL WHERE id = %s",
+                    (STATUS_NORMAL, a_horse.id),
+                )
+    else:
+        if hasattr(farm_out_date, "isoformat"):
+            status_date = farm_out_date.isoformat()
+        else:
+            status_date = farm_out_date or date.today().isoformat()
+        _a_horse_repo.update_status_bulk(
+            [a_horse.id], _A_STATUS_ENTRUSTMENT_ENDED, status_date
+        )
 
 # ── 등록/수정 ────────────────────────────────────────────────────────
 
@@ -94,6 +120,8 @@ def register_horse(raw: dict[str, Any], overwrite: bool = False) -> Horse:
     horse_id = raw.get("horse_id")
     if not horse_id:
         raise EntrustmentServiceError("마번은 필수입니다.")
+    horse_id = normalize_horse_number(horse_id)
+    raw["horse_id"] = horse_id
 
     horse_name = raw.pop("horse_name", None)  # entrustment 테이블 필드가 아니므로 미리 분리
 
@@ -141,31 +169,29 @@ def register_horse(raw: dict[str, Any], overwrite: bool = False) -> Horse:
     else:
         repository.insert_horse(horse_dict)
 
+    _sync_a_horse_status(horse.horse_id, horse.status, horse.farm_out_date)
     return horse
 
 
 def update_horse_fields(horse_id: str, fields: dict[str, Any]) -> None:
+    horse_id = normalize_horse_number(horse_id)
     if not repository.horse_exists(horse_id):
         raise EntrustmentServiceError(f"마번 {horse_id}에 해당하는 위탁 계약을 찾을 수 없습니다.")
     repository.update_horse(horse_id, fields)
 
+    updated = repository.get_horse(horse_id)
+    if updated:
+        _sync_a_horse_status(horse_id, updated.get("status"), updated.get("farm_out_date"))
+
 
 def set_status(horse_id: str, new_status: str) -> None:
-    """위탁 계약 화면에서 사용자가 상태를 수동으로 변경할 때 사용하는 범용 함수."""
+    horse_id = normalize_horse_number(horse_id)
     if new_status not in HORSE_STATUS_OPTIONS:
         raise EntrustmentServiceError(f"status는 {HORSE_STATUS_OPTIONS} 중 하나여야 합니다.")
     update_horse_fields(horse_id, {"status": new_status})
 
-
 def delete_horse(horse_id: str) -> None:
-    """
-    위탁 계약을 삭제한다. 연관된 경매기록/경주기록/통산요약도 함께 삭제한다
-    (실수로 잘못 등록한 위탁 계약을 되돌리는 용도이므로 연쇄 삭제가 자연스럽다).
-    [A/B 정합성 수정] 삭제 대상 마번이 A에서 위수탁마로 분류돼 있다면, A의 horses 행도
-    함께 삭제한다(위수탁마는 entrustment로 인해서만 A에 존재하므로). A 자체 소유마라면
-    horses는 건드리지 않는다.
-    정상 종료된 위탁은 삭제가 아니라 set_status로 '위탁종료' 처리해야 한다.
-    """
+    horse_id = normalize_horse_number(horse_id)
     if not repository.horse_exists(horse_id):
         raise EntrustmentServiceError(f"마번 {horse_id}에 해당하는 위탁 계약을 찾을 수 없습니다.")
 
@@ -181,6 +207,7 @@ def delete_horse(horse_id: str) -> None:
 
 
 def get_horse(horse_id: str) -> Optional[Horse]:
+    horse_id = normalize_horse_number(horse_id)
     row = repository.get_horse(horse_id)
     return Horse(**row) if row else None
 

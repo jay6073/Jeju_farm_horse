@@ -98,6 +98,7 @@ def _build_list_section() -> None:
             list_container.clear()
             status = status_select.value
             horses = await run.io_bound(entrustment_service.list_horses, status)
+            horses = sorted(horses, key=lambda h: h.name or "")  # 마명순 정렬
             with list_container:
                 if not horses:
                     empty_state("조건에 맞는 위탁 계약이 없습니다", icon="info")
