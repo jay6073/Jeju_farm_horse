@@ -169,6 +169,19 @@ def register_horse(raw: dict[str, Any], overwrite: bool = False) -> Horse:
     else:
         repository.insert_horse(horse_dict)
 
+        # [신규] 개별 등록은 excel_adapter를 거치지 않아 auction_record가 생기지 않으므로,
+        # 엑셀 경로(_build_auction_events)와 결과를 맞추기 위해 경매기록이 전혀 없는 말에는
+        # "미상장" 1건을 명시적으로 생성한다.
+    if not repository.list_auction_records(horse.horse_id):
+        repository.insert_auction_record({
+            "horse_id": horse.horse_id,
+            "auction_date": None,
+            "auction_name": "미상장",
+            "hammer_price": None,
+            "buyer_name": None,
+            "is_final": False,
+        })
+
     _sync_a_horse_status(horse.horse_id, horse.status, horse.farm_out_date)
     return horse
 
