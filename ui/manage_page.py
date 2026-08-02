@@ -14,13 +14,12 @@ from datetime import date
 
 from nicegui import events, run, ui
 
-from models.horse import HORSE_SPECIES, NON_NORMAL_STATUSES, Horse
+from models.horse import HORSE_SPECIES, MANAGEABLE_STATUSES, Horse
 from repository.horse_repository import HorseRepository
 from services import import_service
 from services.import_service import ImportValidationError
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES, empty_state, status_badge
-from models.horse import HORSE_SPECIES, NON_NORMAL_STATUSES, Horse
 
 # 위수탁마는 위탁 계약(entrustment_page.py)을 통해서만 등록 가능 — 개별 추가에서는 제외
 MANAGEABLE_SPECIES = [s for s in HORSE_SPECIES if s != "위수탁마"]
@@ -136,7 +135,7 @@ def _build_status_change_section() -> None:
                     )
                     with ui.row().classes("w-full gap-3"):
                         status_select = ui.select(
-                            options=NON_NORMAL_STATUSES, label="상태"
+                            options=MANAGEABLE_STATUSES, label="상태"
                         ).classes("flex-1")
                         date_input = ui.input(
                             label="발생일자", value=date.today().isoformat()

@@ -22,32 +22,40 @@ from services import auction_service, entrustment_service, racing_service
 
 def _auction_summary_by_horse() -> pd.DataFrame:
     """
-    말(horse) 단위로 경매요약(낙찰/유찰/미상장)과 낙찰가 합계(최초+최종), 사업연도를 집계한다.
-    한 말에 auction_record가 최대 2건(최초/최종) 있을 수 있으므로 horse_id로 묶는다.
-    낙찰가는 공란(None) 처리된 값은 자동으로 합산에서 제외된다.
+    말(horse) 단위로 경매요약(낙찰/유찰/미상장)과 낙찰가(말당 1건)를 집계한다.
     """
-    auctions = repository.list_all_auction_records_with_horse()
+    auctions = repository.list_all_auction_record_rows_with_horse()
     if not auctions:
         return pd.DataFrame(columns=["horse_id", "auction_summary", "total_hammer_price", "연도"])
 
-    df = pd.DataFrame(auctions)
+    results_by_horse: dict[str, set[str]] = {}
+    year_by_horse: dict[str, Any] = {}
+    for row in auctions:
+        hid = row["horse_id"]
+        name = row.get("auction_name")
+        if name:
+            results_by_horse.setdefault(hid, set()).add(name)
+        if hid not in year_by_horse:
+            year_by_horse[hid] = row.get("application_year")
 
-    grouped = (
-        df.groupby("horse_id")
-        .agg(
-            auction_summary=("auction_name", "first"),
-            total_hammer_price=("hammer_price", lambda s: s.dropna().sum()),
-            연도=("application_year", "first"),
-        )
-        .reset_index()
-    )
-    return grouped
+    prices = auction_service.hammer_price_per_horse(auctions)
+
+    rows = []
+    for hid in results_by_horse:
+        rows.append({
+            "horse_id": hid,
+            "auction_summary": auction_service.summarize_auction_result(results_by_horse[hid]),
+            "total_hammer_price": prices.get(hid, 0),
+            "연도": year_by_horse.get(hid),
+        })
+
+    return pd.DataFrame(rows)
 
 
 def overview_kpis() -> dict[str, Any]:
     """대시보드 최상단 핵심 지표."""
     horses = repository.fetch_all_horses_df_rows()
-    auctions = repository.list_all_auction_records_with_horse()
+    auctions = repository.list_all_auction_record_rows_with_horse()
     summaries = repository.list_all_career_summaries_with_horse()
 
     total_horses = len(horses)

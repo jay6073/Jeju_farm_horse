@@ -41,6 +41,12 @@ def a_horse_exists(horse_id: str) -> bool:
             cur.execute("SELECT 1 FROM horses WHERE 마번 = %s", (horse_id,))
             return cur.fetchone() is not None
 
+
+def entrustment_exists(horse_id: str) -> bool:
+    """entrustment 테이블(위탁 계약)에 해당 마번이 존재하는지 확인."""
+    horse_id = normalize_horse_number(horse_id)
+    return repository.horse_exists(horse_id)
+
 RECHECK_INTERVAL_DAYS = 7  # 위탁종료된 말은 이 기간마다 경주기록을 다시 확인한다
 
 
@@ -382,6 +388,10 @@ _ENTRUSTMENT_FIELDS = {
     "entrustment_period",
     "entrustment_fee",
     "status",
+    "first_listed_date",
+    "first_result",
+    "final_listed_date",
+    "final_result",
 }
 
 

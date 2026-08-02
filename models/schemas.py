@@ -38,6 +38,11 @@ class Horse(BaseModel):
     entrustment_fee: Optional[int] = Field(None, description="위탁비(부가세포함)")
     status: str = Field(STATUS_ENTRUSTED, description="위탁중/위탁종료")
 
+    first_listed_date: Optional[date] = Field(None, description="최초경매상장일")
+    first_result: Optional[str] = Field(None, description="최초경매결과 (표시용 정규화 텍스트)")
+    final_listed_date: Optional[date] = Field(None, description="최종경매상장일")
+    final_result: Optional[str] = Field(None, description="최종경매결과 (표시용 정규화 텍스트)")
+
     @field_validator("horse_id")
     @classmethod
     def validate_horse_id(cls, v: str) -> str:

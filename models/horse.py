@@ -20,6 +20,8 @@ HORSE_SPECIES: list[str] = ["씨수말", "교육마", "관상마", "위수탁마
 # 상태 옵션
 STATUS_NORMAL: str = "정상"
 NON_NORMAL_STATUSES: list[str] = ["폐사", "위수탁종료", "매각", "기타"]
+# 관리 화면에서 수동 변경 가능한 상태 (위수탁종료는 entrustment_service가 위수탁마에만 자동 반영)
+MANAGEABLE_STATUSES: list[str] = [s for s in NON_NORMAL_STATUSES if s != "위수탁종료"]
 ALL_STATUSES: list[str] = [STATUS_NORMAL] + NON_NORMAL_STATUSES
 
 # horsepia.com의 hrsGbCd(품종 구분코드). 목장 "마종"(용도 분류)과는 별개 축의 값이며,

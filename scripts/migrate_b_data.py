@@ -26,6 +26,7 @@ _ENTRUSTMENT_FIELDS = [
     "horse_id", "application_year", "applicant_name", "farm_name",
     "farm_in_date", "farm_out_date", "entrustment_period",
     "entrustment_fee", "status",
+    "first_listed_date", "first_result", "final_listed_date", "final_result",
 ]
 
 

@@ -14,6 +14,7 @@ Phase 2: 경매관리 비즈니스 로직.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any, Optional
 
@@ -94,52 +95,138 @@ def list_records_for_horse(horse_id: str) -> list[AuctionRecord]:
     return [AuctionRecord(**r) for r in rows]
 
 
-def list_all_records() -> list[dict[str, Any]]:
-    """경매관리 화면 전체 목록. Horse 정보(마명/신청인/상태)가 함께 조인되어 온다."""
-    return repository.list_all_auction_records_with_horse()
+def list_all_records(status: str | None = None) -> list[dict[str, Any]]:
+    """경매관리 화면 목록. 마번당 1행 + entrustment 4필드."""
+    return repository.list_all_auction_records_with_horse(status)
 
 
 def get_auction_summary(status: str | None = None) -> dict[str, Any]:
     """
-    경매기록 요약: 전체 두수 / 낙찰 두수 / 낙찰가 합계.
-    두수는 auction_record 건수가 아니라 마번(horse_id) 기준 유니크 카운트.
-    한 말에 유찰/낙찰이 여러 건 있어도 1두로 집계된다.
-    status가 주어지면 해당 위탁상태(위탁중/위탁종료)의 말로 한정.
+    경매관리 요약 카드. 목록과 동일한 데이터(마번당 1행 + entrustment 4필드)를 기준으로 집계한다.
+    분류·낙찰가 모두 first_result / final_result 텍스트에서 판단한다.
     """
-    records = repository.list_all_auction_records_with_horse()
+    horses = repository.list_all_auction_records_with_horse(status)
 
-    if status:
-        records = [r for r in records if r.get("horse_status") == status]
+    won = lost = unlisted = 0
+    total_price = 0
 
-    total_horses = {r["horse_id"] for r in records}
-
-    # 말별로 지금까지 나온 경매 결과(낙찰/유찰/미상장 등)를 모두 모아둔다.
-    # 한 말이 재상장 등으로 여러 결과를 가질 수 있으므로,
-    # "낙찰 > 유찰 > 미상장" 우선순위로 최종 결과 1개만 인정해 중복 집계를 막는다.
-    results_by_horse: dict[str, set[str]] = {}
-    for r in records:
-        results_by_horse.setdefault(r["horse_id"], set()).add(r.get("auction_name"))
-
-    won_horses = {h for h, names in results_by_horse.items() if "낙찰" in names}
-    lost_horses = {
-        h for h, names in results_by_horse.items()
-        if h not in won_horses and "유찰" in names
-    }
-    unlisted_horses = {
-        h for h, names in results_by_horse.items()
-        if h not in won_horses and h not in lost_horses and "미상장" in names
-    }
-
-    won_records = [r for r in records if r.get("auction_name") == "낙찰"]
+    for h in horses:
+        first_r = h.get("first_result")
+        final_r = h.get("final_result")
+        category = classify_horse_from_entrustment_fields(first_r, final_r)
+        if category == "낙찰":
+            won += 1
+            total_price += hammer_price_from_entrustment_fields(first_r, final_r)
+        elif category == "유찰":
+            lost += 1
+        else:
+            unlisted += 1
 
     return {
-        "total_count": len(total_horses),
-        "won_count": len(won_horses),
-        "lost_count": len(lost_horses),
-        "unlisted_count": len(unlisted_horses),
-        # hammer_price가 비어있는(None) 낙찰 건이 있어도 합산이 깨지지 않도록 방어
-        "total_price": sum(r.get("hammer_price") or 0 for r in won_records),
+        "total_count": len(horses),
+        "won_count": won,
+        "lost_count": lost,
+        "unlisted_count": unlisted,
+        "total_price": total_price,
     }
+
+
+# ── entrustment 4필드 집계 (경매관리 UI와 동일 기준) ─────────────────────
+
+
+_HAMMER_PRICE_RE = re.compile(r"낙찰\s*\(([\d,]+)\)")
+
+
+def _normalize_display_result(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text and text != "-" else None
+
+
+def classify_horse_from_entrustment_fields(
+    first_result: Any,
+    final_result: Any,
+) -> str:
+    """
+    entrustment first/final result → 말 1두의 요약 분류.
+    우선순위: 낙찰 > 유찰/계약해지 > 미상장 > (둘 다 공란 → 미상장)
+    """
+    slots = [
+        _normalize_display_result(first_result),
+        _normalize_display_result(final_result),
+    ]
+    active = [s for s in slots if s]
+    if not active:
+        return "미상장"
+    if any(s.startswith("낙찰") for s in active):
+        return "낙찰"
+    if any(s in ("유찰", "계약해지") for s in active):
+        return "유찰"
+    return "미상장"
+
+
+def hammer_price_from_entrustment_fields(
+    first_result: Any,
+    final_result: Any,
+) -> int:
+    """4컬럼 결과 텍스트에서 낙찰가 1건 추출. 최종 슬롯 우선, 없으면 최초 슬롯."""
+    for r in (final_result, first_result):
+        text = _normalize_display_result(r)
+        if text and text.startswith("낙찰"):
+            match = _HAMMER_PRICE_RE.search(text)
+            if match:
+                return int(match.group(1).replace(",", ""))
+    return 0
+
+
+# ── auction_record 집계 (통합 대시보드 등에서 재사용) ───────────────────
+
+
+def _has_lost_result(names: set[str]) -> bool:
+    for name in names:
+        if name in ("유찰", "계약해지"):
+            return True
+        if name and ("취소" in name or "해지" in name):
+            return True
+    return False
+
+
+def summarize_auction_result(names: set[str]) -> str | None:
+    """말별 auction_name 집합에서 낙찰 > 유찰/계약해지 > 미상장 우선순위로 1개 반환."""
+    if "낙찰" in names:
+        return "낙찰"
+    if _has_lost_result(names):
+        return "유찰"
+    if "미상장" in names:
+        return "미상장"
+    return None
+
+
+def hammer_price_per_horse(records: list[dict[str, Any]]) -> dict[str, int]:
+    """말당 낙찰가 1건만 인정. is_final 우선, 없으면 auction_date 최신."""
+    by_horse: dict[str, tuple[bool, date | None, int]] = {}
+
+    for r in records:
+        if r.get("auction_name") != "낙찰":
+            continue
+        hid = r["horse_id"]
+        price = r.get("hammer_price") or 0
+        is_final = bool(r.get("is_final"))
+        adate = r.get("auction_date")
+
+        prev = by_horse.get(hid)
+        if prev is None:
+            by_horse[hid] = (is_final, adate, price)
+            continue
+
+        prev_final, prev_date, prev_price = prev
+        if is_final and not prev_final:
+            by_horse[hid] = (True, adate, price)
+        elif is_final == prev_final and (adate or date.min) > (prev_date or date.min):
+            by_horse[hid] = (is_final, adate, price)
+
+    return {hid: price for hid, (_, _, price) in by_horse.items()}
 
 
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────

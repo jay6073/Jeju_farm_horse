@@ -223,19 +223,75 @@ def unset_final_flag_for_horse(horse_id: str, except_id: Optional[int] = None, c
         _run(conn)
 
 
-def list_all_auction_records_with_horse() -> list[dict[str, Any]]:
-    """경매관리 화면 전체 목록용. Horse 기본정보(마명)와 위탁정보(신청인/상태/사업연도)를 조인해서 반환."""
+def list_all_auction_record_rows_with_horse(status: str | None = None) -> list[dict[str, Any]]:
+    """집계용. auction_record 1건 = 1행 (요약카드·대시보드 계산에 사용)."""
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
+            params: list[Any] = []
+            status_clause = ""
+            if status:
+                status_clause = " AND e.status = %s"
+                params.append(status)
+
             cur.execute(
-                """
-                SELECT ar.*, h.마명 AS horse_name, e.applicant_name, e.status AS horse_status,
-                       e.application_year
+                f"""
+                SELECT ar.*,
+                       h.마명 AS horse_name,
+                       e.applicant_name,
+                       e.status AS horse_status,
+                       e.application_year,
+                       e.first_listed_date,
+                       e.first_result,
+                       e.final_listed_date,
+                       e.final_result
                 FROM auction_record ar
                 JOIN horses h ON h.마번 = ar.horse_id
                 LEFT JOIN entrustment e ON e.horse_id = ar.horse_id
+                WHERE TRUE{status_clause}
                 ORDER BY ar.auction_date DESC
-                """
+                """,
+                params,
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def list_all_auction_records_with_horse(status: str | None = None) -> list[dict[str, Any]]:
+    """경매관리 화면 목록용. 마번당 1행 + entrustment 4필드 포함."""
+    with get_connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            params: list[Any] = []
+            status_clause = ""
+            if status:
+                status_clause = " AND e.status = %s"
+                params.append(status)
+
+            cur.execute(
+                f"""
+                SELECT DISTINCT ON (ar.horse_id)
+                       ar.*,
+                       h.마명 AS horse_name,
+                       e.applicant_name,
+                       e.status AS horse_status,
+                       e.application_year,
+                       e.first_listed_date,
+                       e.first_result,
+                       e.final_listed_date,
+                       e.final_result
+                FROM auction_record ar
+                JOIN horses h ON h.마번 = ar.horse_id
+                LEFT JOIN entrustment e ON e.horse_id = ar.horse_id
+                WHERE TRUE{status_clause}
+                ORDER BY ar.horse_id,
+                         ar.is_final DESC,
+                         CASE ar.auction_name
+                             WHEN '낙찰' THEN 0
+                             WHEN '유찰' THEN 1
+                             ELSE 2
+                         END,
+                         ar.auction_date DESC NULLS LAST,
+                         ar.id DESC
+                """,
+                params,
             )
             return [dict(r) for r in cur.fetchall()]
 

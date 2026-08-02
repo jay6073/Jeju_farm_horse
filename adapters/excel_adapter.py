@@ -13,6 +13,8 @@
   (예전 로직은 이 경우 auction_record 자체를 안 만들어서 미상장 말이 통째로 누락되는 버그가 있었음)
 - is_final은 "낙찰"인 이벤트 중 가장 나중 슬롯(최종이 있으면 최종, 없으면 최초)에만 부여한다.
 - 경매요약 컬럼은 더 이상 파싱에 쓰이지 않는다. 존재할 경우 교차검증(불일치 시 warning)에만 사용한다.
+- 상장일 셀에 '2025-01-24 / 2025-06-23'처럼 슬래시로 구분된 복수 날짜가 있으면,
+  최초 슬롯은 앞 날짜, 최종 슬롯은 뒤(마지막) 날짜를 사용한다.
 """
 from __future__ import annotations
 from shared.horse_number import normalize_horse_number
@@ -40,6 +42,9 @@ REQUIRED_COLS = [
 OPTIONAL_COLS = ["경매요약"]
 
 KNOWN_AUCTION_RESULTS = {"낙찰", "유찰", "미상장"}
+
+_DATE_SEP_RE = re.compile(r"\s*/\s*")
+_DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d")
 
 
 @dataclass
@@ -104,15 +109,24 @@ def _parse_single_row(row_number: int, row: pd.Series) -> ParsedRow:
 
     entrustment_period = _clean_str(row.get("위탁기간"))
 
+    first_date_raw = row.get("최초경매상장")
+    first_result_raw = row.get("최초경매결과")
+    final_date_raw = row.get("최종경매상장")
+    final_result_raw = row.get("최종경매결과")
+
     auctions, auction_warnings = _build_auction_events(
         horse_id=horse_id,
-        first_date=row.get("최초경매상장"),
-        first_result=row.get("최초경매결과"),
-        final_date=row.get("최종경매상장"),
-        final_result=row.get("최종경매결과"),
+        first_date=first_date_raw,
+        first_result=first_result_raw,
+        final_date=final_date_raw,
+        final_result=final_result_raw,
         excel_summary=row.get("경매요약") if "경매요약" in row.index else None,
     )
     parsed.warnings.extend(auction_warnings)
+
+    auction_fields = _build_entrustment_auction_fields(
+        first_date_raw, first_result_raw, final_date_raw, final_result_raw
+    )
 
     status = _compute_status(farm_out_date)
 
@@ -134,6 +148,7 @@ def _parse_single_row(row_number: int, row: pd.Series) -> ParsedRow:
         "entrustment_period": entrustment_period,
         "entrustment_fee": entrustment_fee,
         "status": status,
+        **auction_fields,
     }
 
     parsed.horse = horse
@@ -151,7 +166,122 @@ def _compute_status(farm_out_date: Optional[date]) -> str:
     return STATUS_ENDED
 
 
-def _parse_result_slot(date_value: Any, result_value: Any) -> Optional[dict[str, Any]]:
+def _format_result_for_display(result_text: str) -> str:
+    """entrustment 저장/UI 표시용 결과 텍스트 정규화."""
+    if "취소" in result_text or "해지" in result_text:
+        return "계약해지"
+    if "유찰" in result_text:
+        return "유찰"
+    if result_text == "미상장":
+        return "미상장"
+    if re.fullmatch(r"[\d,.\s원]+", result_text):
+        digits = re.sub(r"[^\d]", "", result_text)
+        price = int(digits) if digits else None
+        if price:
+            return f"낙찰 ({price:,})"
+        return "낙찰"
+    if result_text == "낙찰":
+        return "낙찰"
+    return result_text
+
+
+def format_result_from_auction_record(
+    auction_name: str | None,
+    hammer_price: int | None,
+) -> str | None:
+    """auction_record 1건 → entrustment 표시용 결과 텍스트."""
+    if not auction_name:
+        return None
+    if auction_name == "낙찰":
+        if hammer_price:
+            return f"낙찰 ({int(hammer_price):,})"
+        return "낙찰"
+    if auction_name in ("유찰", "미상장"):
+        return auction_name
+    return _format_result_for_display(auction_name)
+
+
+def build_entrustment_auction_fields_from_records(
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """기존 auction_record 목록에서 entrustment 4필드를 역산한다 (백필·엑셀 대체용)."""
+    if not records:
+        return {
+            "first_listed_date": None,
+            "first_result": "미상장",
+            "final_listed_date": None,
+            "final_result": None,
+        }
+
+    sorted_recs = sorted(
+        records,
+        key=lambda r: (
+            _pick_record_date(r, use_last=False) is None,
+            _pick_record_date(r, use_last=False) or date.min,
+            r.get("id") or 0,
+        ),
+    )
+
+    def _slot(rec: dict[str, Any], *, use_last_date: bool) -> tuple[Any, str | None]:
+        return (
+            _pick_record_date(rec, use_last=use_last_date),
+            format_result_from_auction_record(
+                rec.get("auction_name"), rec.get("hammer_price")
+            ),
+        )
+
+    first_date, first_result = _slot(sorted_recs[0], use_last_date=False)
+    if len(sorted_recs) == 1:
+        return {
+            "first_listed_date": first_date,
+            "first_result": first_result,
+            "final_listed_date": None,
+            "final_result": None,
+        }
+
+    final_date, final_result = _slot(sorted_recs[-1], use_last_date=True)
+    return {
+        "first_listed_date": first_date,
+        "first_result": first_result,
+        "final_listed_date": final_date,
+        "final_result": final_result,
+    }
+
+
+def _build_entrustment_auction_fields(
+    first_date: Any,
+    first_result: Any,
+    final_date: Any,
+    final_result: Any,
+) -> dict[str, Any]:
+    """entrustment 테이블 4필드(최초/최종 상장일·결과)를 슬롯별 독립으로 생성한다."""
+    first_listed_date = _clean_date(first_date)
+    final_listed_date = _clean_date_last(final_date)
+    first_result_text = _clean_str(first_result)
+    final_result_text = _clean_str(final_result)
+
+    if not any([first_listed_date, first_result_text, final_listed_date, final_result_text]):
+        return {
+            "first_listed_date": None,
+            "first_result": "미상장",
+            "final_listed_date": None,
+            "final_result": None,
+        }
+
+    return {
+        "first_listed_date": first_listed_date,
+        "first_result": _format_result_for_display(first_result_text) if first_result_text else None,
+        "final_listed_date": final_listed_date,
+        "final_result": _format_result_for_display(final_result_text) if final_result_text else None,
+    }
+
+
+def _parse_result_slot(
+    date_value: Any,
+    result_value: Any,
+    *,
+    use_last_date: bool = False,
+) -> Optional[dict[str, Any]]:
     """
     최초/최종 경매결과 슬롯 하나를 해석해 이벤트 dict로 변환한다.
     - 순수 숫자(쉼표/공백/'원' 허용)만 있으면 낙찰(그 숫자가 낙찰가)
@@ -164,7 +294,7 @@ def _parse_result_slot(date_value: Any, result_value: Any) -> Optional[dict[str,
     if result_text is None:
         return None
 
-    auction_date = _clean_date(date_value)
+    auction_date = _clean_date_last(date_value) if use_last_date else _clean_date(date_value)
 
     if "취소" in result_text or "해지" in result_text or "유찰" in result_text:
         hammer_price = None
@@ -197,8 +327,8 @@ def _build_auction_events(
     """최초/최종 경매결과 슬롯을 해석해 auction_record 리스트를 만들고, 검증 warning을 함께 반환한다."""
     warnings: list[str] = []
 
-    first_event = _parse_result_slot(first_date, first_result)
-    final_event = _parse_result_slot(final_date, final_result)
+    first_event = _parse_result_slot(first_date, first_result, use_last_date=False)
+    final_event = _parse_result_slot(final_date, final_result, use_last_date=True)
     events = [e for e in (first_event, final_event) if e is not None]
 
     if not events:
@@ -281,24 +411,48 @@ def _clean_int(value: Any) -> Optional[int]:
         return None
 
 
-def _clean_date(value: Any) -> Optional[date]:
+def _parse_dates(value: Any) -> list[date]:
+    """셀 하나에서 날짜 1개 이상 파싱. '2025-01-24 / 2025-06-23' 형태 지원."""
     if _is_missing(value):
-        return None
+        return []
     if isinstance(value, pd.Timestamp):
-        return value.date()
+        return [value.date()]
     if isinstance(value, datetime):
-        return value.date()
+        return [value.date()]
     if isinstance(value, date):
-        return value
+        return [value]
     text = _clean_str(value)
     if not text:
-        return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
-        try:
-            return datetime.strptime(text, fmt).date()
-        except ValueError:
+        return []
+
+    dates: list[date] = []
+    for part in _DATE_SEP_RE.split(text):
+        part = part.strip()
+        if not part:
             continue
-    return None
+        for fmt in _DATE_FORMATS:
+            try:
+                dates.append(datetime.strptime(part, fmt).date())
+                break
+            except ValueError:
+                continue
+    return dates
+
+
+def _clean_date(value: Any) -> Optional[date]:
+    dates = _parse_dates(value)
+    return dates[0] if dates else None
+
+
+def _clean_date_last(value: Any) -> Optional[date]:
+    dates = _parse_dates(value)
+    return dates[-1] if dates else None
+
+
+def _pick_record_date(rec: dict[str, Any], *, use_last: bool = False) -> Optional[date]:
+    """auction_record 행의 auction_date(복수 날짜 문자열 포함)에서 날짜 1개 추출."""
+    raw = rec.get("auction_date")
+    return _clean_date_last(raw) if use_last else _clean_date(raw)
 
 
 def _clean_currency(value: Any) -> tuple[Optional[int], Optional[str]]:
