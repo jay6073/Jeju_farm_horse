@@ -265,46 +265,54 @@ def _build_import_section() -> None:
                     )
 
             async def on_commit() -> None:
-                result = await run.io_bound(
-                    entrustment_import_service.import_horses_from_excel,
-                    file_bytes,
-                    overwrite_checkbox.value,
-                )
+                btn.props("loading disable")
+                try:
+                    try:
+                        result = await run.io_bound(
+                            entrustment_import_service.import_horses_from_excel,
+                            file_bytes,
+                            overwrite_checkbox.value,
+                        )
+                    except Exception as ex:
+                        ui.notify(f"일괄 등록 실패: {ex}", type="negative")
+                        return
 
-                has_issues = bool(getattr(result, "skip_details", None)) or bool(
-                    getattr(result, "warnings", None)
-                )
+                    has_issues = bool(getattr(result, "skip_details", None)) or bool(
+                        getattr(result, "warnings", None)
+                    )
 
-                ui.notify(
-                    f"성공 {result.success_count}건, 덮어씀 {result.overwritten_count}건, "
-                    f"스킵 {result.skipped_count}건"
-                    + (" — 확인이 필요한 항목이 있습니다" if has_issues else ""),
-                    type="warning" if has_issues else "positive",
-                )
+                    ui.notify(
+                        f"성공 {result.success_count}건, 덮어씀 {result.overwritten_count}건, "
+                        f"스킵 {result.skipped_count}건"
+                        + (" — 확인이 필요한 항목이 있습니다" if has_issues else ""),
+                        type="warning" if has_issues else "positive",
+                    )
 
-                if has_issues:
-                    with preview_container:
-                        with ui.row().classes(
-                                "items-center justify-between gap-2 py-2 px-4 "
-                                "bg-orange-50 rounded-lg w-full mt-2"
-                        ):
-                            ui.label(
-                                f"스킵 {result.skipped_count}건"
-                                + (
-                                    f", 경고 {len(result.warnings)}건"
-                                    if getattr(result, "warnings", None)
-                                    else ""
-                                )
-                            ).classes("text-sm text-orange-700")
-                            ui.button(
-                                "자세히 보기",
-                                on_click=lambda: _open_import_detail_dialog(result),
-                            ).props("flat dense color=orange")
+                    if has_issues:
+                        with preview_container:
+                            with ui.row().classes(
+                                    "items-center justify-between gap-2 py-2 px-4 "
+                                    "bg-orange-50 rounded-lg w-full mt-2"
+                            ):
+                                ui.label(
+                                    f"스킵 {result.skipped_count}건"
+                                    + (
+                                        f", 경고 {len(result.warnings)}건"
+                                        if getattr(result, "warnings", None)
+                                        else ""
+                                    )
+                                ).classes("text-sm text-orange-700")
+                                ui.button(
+                                    "자세히 보기",
+                                    on_click=lambda: _open_import_detail_dialog(result),
+                                ).props("flat dense color=orange")
 
-                commit_container.clear()
+                    commit_container.clear()
+                finally:
+                    btn.props(remove="loading disable")
 
             with commit_container:
-                ui.button("일괄 등록", on_click=on_commit).props("color=primary")
+                btn = ui.button("일괄 등록", on_click=on_commit).props("color=primary")
 
         ui.upload(on_upload=on_upload, auto_upload=True).props(
             "flat bordered color=primary accept=.xlsx,.xls,.xlsm dense"
