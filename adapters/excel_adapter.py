@@ -17,6 +17,7 @@
 from __future__ import annotations
 from shared.horse_number import normalize_horse_number
 
+import io
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -54,9 +55,11 @@ class ParsedRow:
 
 def read_excel_sheet(file) -> pd.DataFrame:
     """
-    file: 파일 경로 또는 파일류 객체 (Streamlit UploadedFile 포함).
+    file: 파일 경로, 파일류 객체(Streamlit UploadedFile 포함), 또는 bytes.
     마번은 선행 0 보존을 위해 반드시 문자열로 읽는다.
     """
+    if isinstance(file, (bytes, bytearray)):
+        file = io.BytesIO(file)
     df = pd.read_excel(file, sheet_name=SHEET_NAME, dtype={"마번": str})
     return df
 
