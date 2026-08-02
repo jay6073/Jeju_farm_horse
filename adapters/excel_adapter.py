@@ -154,8 +154,9 @@ def _compute_status(farm_out_date: Optional[date]) -> str:
 def _parse_result_slot(date_value: Any, result_value: Any) -> Optional[dict[str, Any]]:
     """
     최초/최종 경매결과 슬롯 하나를 해석해 이벤트 dict로 변환한다.
-    - 숫자만 있으면 낙찰(그 숫자가 낙찰가)
-    - "유찰" 텍스트가 포함되어 있으면 유찰
+    - 순수 숫자(쉼표/공백/'원' 허용)만 있으면 낙찰(그 숫자가 낙찰가)
+    - "취소" 또는 "유찰" 텍스트가 포함되어 있으면 유찰
+      (예: "경매취소(50,000,000)"처럼 숫자가 섞여 있어도 취소는 유찰로 간주)
     - 그 외 텍스트가 있으면 예상치 못한 표기로 간주해 원문을 auction_name에 그대로 남김
     - 공란이면 이 슬롯은 이벤트 없음 (None 반환)
     """
@@ -164,14 +165,15 @@ def _parse_result_slot(date_value: Any, result_value: Any) -> Optional[dict[str,
         return None
 
     auction_date = _clean_date(date_value)
-    digits = re.sub(r"[^\d]", "", result_text)
 
-    if digits:
-        hammer_price: Optional[int] = int(digits)
-        auction_name = "낙찰"
-    elif "유찰" in result_text:
+    if "취소" in result_text or "유찰" in result_text:
         hammer_price = None
         auction_name = "유찰"
+    elif re.fullmatch(r"[\d,.\s원]+", result_text):
+        # 순수 숫자(구분자 포함)로만 구성된 경우에만 낙찰로 판정
+        digits = re.sub(r"[^\d]", "", result_text)
+        hammer_price = int(digits) if digits else None
+        auction_name = "낙찰"
     else:
         # 예상 못한 표기(오타 등) - 원문 그대로 유지, 호출부에서 warning 처리
         hammer_price = None
@@ -181,8 +183,8 @@ def _parse_result_slot(date_value: Any, result_value: Any) -> Optional[dict[str,
         "auction_date": auction_date,
         "auction_name": auction_name,
         "hammer_price": hammer_price,
-        "buyer_name": None,  # 엑셀에 없음 -> 공란, 추후 수기 보완
-        "is_final": False,  # 최종 판정은 _build_auction_events에서 일괄 처리
+        "buyer_name": None,
+        "is_final": False,
     }
 
 

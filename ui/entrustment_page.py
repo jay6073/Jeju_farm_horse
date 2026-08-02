@@ -270,17 +270,37 @@ def _build_import_section() -> None:
                     file_bytes,
                     overwrite_checkbox.value,
                 )
+
+                has_issues = bool(getattr(result, "skip_details", None)) or bool(
+                    getattr(result, "warnings", None)
+                )
+
                 ui.notify(
                     f"성공 {result.success_count}건, 덮어씀 {result.overwritten_count}건, "
-                    f"스킵 {result.skipped_count}건",
-                    type="positive",
+                    f"스킵 {result.skipped_count}건"
+                    + (" — 확인이 필요한 항목이 있습니다" if has_issues else ""),
+                    type="warning" if has_issues else "positive",
                 )
-                if result.skip_details:
+
+                if has_issues:
                     with preview_container:
-                        with ui.card().classes(CARD_CLASSES + " p-4 w-full mt-2"):
-                            ui.label("스킵된 항목").classes("text-sm font-medium text-gray-600 mb-1")
-                            for detail in result.skip_details:
-                                ui.label(detail).classes("text-xs text-orange-600")
+                        with ui.row().classes(
+                                "items-center justify-between gap-2 py-2 px-4 "
+                                "bg-orange-50 rounded-lg w-full mt-2"
+                        ):
+                            ui.label(
+                                f"스킵 {result.skipped_count}건"
+                                + (
+                                    f", 경고 {len(result.warnings)}건"
+                                    if getattr(result, "warnings", None)
+                                    else ""
+                                )
+                            ).classes("text-sm text-orange-700")
+                            ui.button(
+                                "자세히 보기",
+                                on_click=lambda: _open_import_detail_dialog(result),
+                            ).props("flat dense color=orange")
+
                 commit_container.clear()
 
             with commit_container:
@@ -292,3 +312,34 @@ def _build_import_section() -> None:
             "w-full max-w-full rounded-xl border-2 border-dashed border-gray-300 "
             "bg-gray-50/50 hover:border-blue-400 transition-colors"
         )
+
+def _open_import_detail_dialog(result) -> None:
+    with ui.dialog() as dialog, ui.card().classes("w-full max-w-lg"):
+        ui.label("일괄 등록 상세 내역").classes("text-base font-medium")
+
+        skip_details = getattr(result, "skip_details", None) or []
+        warnings = getattr(result, "warnings", None) or []
+
+        with ui.scroll_area().classes("w-full max-h-96"):
+            if skip_details:
+                ui.label(f"스킵된 항목 ({len(skip_details)}건)").classes(
+                    "text-sm font-medium text-orange-600 mt-2"
+                )
+                for detail in skip_details:
+                    ui.label(f"• {detail}").classes("text-xs text-orange-600 ml-2")
+
+            if warnings:
+                ui.label(f"경고 ({len(warnings)}건)").classes(
+                    "text-sm font-medium text-amber-600 mt-3"
+                )
+                for w in warnings:
+                    ui.label(f"• {w}").classes("text-xs text-amber-600 ml-2")
+
+            if not skip_details and not warnings:
+                ui.label("표시할 상세 내역이 없습니다.").classes(
+                    "text-xs text-gray-400"
+                )
+
+        with ui.row().classes("w-full justify-end mt-3"):
+            ui.button("닫기", on_click=dialog.close).props("flat")
+    dialog.open()
