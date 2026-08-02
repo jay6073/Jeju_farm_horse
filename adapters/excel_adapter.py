@@ -166,16 +166,14 @@ def _parse_result_slot(date_value: Any, result_value: Any) -> Optional[dict[str,
 
     auction_date = _clean_date(date_value)
 
-    if "취소" in result_text or "유찰" in result_text:
+    if "취소" in result_text or "해지" in result_text or "유찰" in result_text:
         hammer_price = None
         auction_name = "유찰"
     elif re.fullmatch(r"[\d,.\s원]+", result_text):
-        # 순수 숫자(구분자 포함)로만 구성된 경우에만 낙찰로 판정
         digits = re.sub(r"[^\d]", "", result_text)
         hammer_price = int(digits) if digits else None
         auction_name = "낙찰"
     else:
-        # 예상 못한 표기(오타 등) - 원문 그대로 유지, 호출부에서 warning 처리
         hammer_price = None
         auction_name = result_text
 
