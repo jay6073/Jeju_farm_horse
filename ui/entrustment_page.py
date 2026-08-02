@@ -208,13 +208,15 @@ def _confirm_delete(horse, on_done) -> None:
 
 
 def _build_import_section() -> None:
-    parsed_result = {"value": None}
-
     with ui.column().classes("w-full max-w-2xl gap-3"):
         ui.label(
             "필수 컬럼: 마명, 마종, 마번, 신청인 등 위탁 계약 관련 컬럼. "
             "마번이 전체 말 관리(A)에 등록되어 있어야 위탁 계약이 저장됩니다."
         ).classes("text-xs text-gray-400 break-words w-full")
+
+        overwrite_checkbox = ui.checkbox(
+            "이미 존재하는 위탁 계약/경매기록 덮어쓰기 (재이관 시 체크)"
+        )
 
         preview_container = ui.column().classes("w-full")
         commit_container = ui.column().classes("w-full")
@@ -264,7 +266,9 @@ def _build_import_section() -> None:
 
             async def on_commit() -> None:
                 result = await run.io_bound(
-                    entrustment_import_service.import_horses_from_excel, file_bytes
+                    entrustment_import_service.import_horses_from_excel,
+                    file_bytes,
+                    overwrite_checkbox.value,
                 )
                 ui.notify(
                     f"성공 {result.success_count}건, 덮어씀 {result.overwritten_count}건, "

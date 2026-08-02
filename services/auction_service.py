@@ -99,19 +99,6 @@ def list_all_records() -> list[dict[str, Any]]:
     return repository.list_all_auction_records_with_horse()
 
 
-# ── 내부 헬퍼 ────────────────────────────────────────────────────────
-
-
-def _record_to_db_dict(record: AuctionRecord) -> dict[str, Any]:
-    """[통합 시 변경] PostgreSQL 네이티브 date/boolean 타입 사용, 변환 불필요."""
-    d = record.model_dump(exclude={"id"})
-    return d
-
-
-def _format_validation_error(e: ValidationError) -> str:
-    messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
-    return "입력값 오류 - " + "; ".join(messages)
-
 def get_auction_summary(status: str | None = None) -> dict[str, Any]:
     """
     경매기록 요약: 전체 두수 / 낙찰 두수 / 낙찰가 합계.
@@ -125,11 +112,45 @@ def get_auction_summary(status: str | None = None) -> dict[str, Any]:
         records = [r for r in records if r.get("horse_status") == status]
 
     total_horses = {r["horse_id"] for r in records}
+
+    # 말별로 지금까지 나온 경매 결과(낙찰/유찰/미상장 등)를 모두 모아둔다.
+    # 한 말이 재상장 등으로 여러 결과를 가질 수 있으므로,
+    # "낙찰 > 유찰 > 미상장" 우선순위로 최종 결과 1개만 인정해 중복 집계를 막는다.
+    results_by_horse: dict[str, set[str]] = {}
+    for r in records:
+        results_by_horse.setdefault(r["horse_id"], set()).add(r.get("auction_name"))
+
+    won_horses = {h for h, names in results_by_horse.items() if "낙찰" in names}
+    lost_horses = {
+        h for h, names in results_by_horse.items()
+        if h not in won_horses and "유찰" in names
+    }
+    unlisted_horses = {
+        h for h, names in results_by_horse.items()
+        if h not in won_horses and h not in lost_horses and "미상장" in names
+    }
+
     won_records = [r for r in records if r.get("auction_name") == "낙찰"]
-    won_horses = {r["horse_id"] for r in won_records}
 
     return {
         "total_count": len(total_horses),
         "won_count": len(won_horses),
-        "total_price": sum(r["hammer_price"] for r in won_records),
+        "lost_count": len(lost_horses),
+        "unlisted_count": len(unlisted_horses),
+        # hammer_price가 비어있는(None) 낙찰 건이 있어도 합산이 깨지지 않도록 방어
+        "total_price": sum(r.get("hammer_price") or 0 for r in won_records),
     }
+
+
+# ── 내부 헬퍼 ────────────────────────────────────────────────────────
+
+
+def _record_to_db_dict(record: AuctionRecord) -> dict[str, Any]:
+    """[통합 시 변경] PostgreSQL 네이티브 date/boolean 타입 사용, 변환 불필요."""
+    d = record.model_dump(exclude={"id"})
+    return d
+
+
+def _format_validation_error(e: ValidationError) -> str:
+    messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
+    return "입력값 오류 - " + "; ".join(messages)

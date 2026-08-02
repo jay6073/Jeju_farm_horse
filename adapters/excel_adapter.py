@@ -3,6 +3,16 @@
 [지침 변경 포인트] 엑셀 컬럼명/순서가 바뀌면 COLUMN_* 상수만 수정하면 되도록 구성.
 규칙: 이 파일은 DB(repository)를 호출하지 않는다. 순수 파싱/정제만 담당하고,
       실제 저장은 services/import_service.py가 담당한다.
+
+[경매결과 파싱 규칙 - 갱신]
+- 최초경매결과 / 최종경매결과 두 컬럼은 각각 "결과" 슬롯이다.
+  - 숫자만 들어있으면 낙찰(그 숫자가 낙찰가)
+  - "유찰" 텍스트면 유찰
+  - 공란이면 그 슬롯은 이벤트 없음 (상장 자체가 없었거나 재상장이 없었음)
+- 두 슬롯이 모두 공란이면(=상장 이력이 아예 없음) "미상장" 레코드를 명시적으로 1건 생성한다.
+  (예전 로직은 이 경우 auction_record 자체를 안 만들어서 미상장 말이 통째로 누락되는 버그가 있었음)
+- is_final은 "낙찰"인 이벤트 중 가장 나중 슬롯(최종이 있으면 최종, 없으면 최초)에만 부여한다.
+- 경매요약 컬럼은 더 이상 파싱에 쓰이지 않는다. 존재할 경우 교차검증(불일치 시 warning)에만 사용한다.
 """
 from __future__ import annotations
 from shared.horse_number import normalize_horse_number
@@ -19,11 +29,16 @@ from config.constants import STATUS_ENTRUSTED, STATUS_ENDED
 SHEET_NAME = "전기육성위수탁마"
 
 # 이관 대상 컬럼만 정의 (구분/순번/수득상금 이후 컬럼은 애초에 여기 포함하지 않음)
+# 경매요약은 결과 컬럼에서 100% 유도 가능한 파생값이라 필수 컬럼에서 제외 (있으면 교차검증에만 사용)
 REQUIRED_COLS = [
     "사업연도", "지역", "신청인", "목장명", "마명", "현재마명", "마번", "부마", "성별",
     "출생일", "입사일", "퇴사일", "위탁기간", "위탁비(부가세포함)",
-    "최초경매상장", "최초경매결과", "최종경매상장", "최종경매낙찰", "경매요약",
+    "최초경매상장", "최초경매결과", "최종경매상장", "최종경매결과",
 ]
+
+OPTIONAL_COLS = ["경매요약"]
+
+KNOWN_AUCTION_RESULTS = {"낙찰", "유찰", "미상장"}
 
 
 @dataclass
@@ -86,20 +101,15 @@ def _parse_single_row(row_number: int, row: pd.Series) -> ParsedRow:
 
     entrustment_period = _clean_str(row.get("위탁기간"))
 
-    auction_first = _extract_auction(
-        row.get("최초경매상장"), row.get("최초경매결과"), is_final=False
+    auctions, auction_warnings = _build_auction_events(
+        horse_id=horse_id,
+        first_date=row.get("최초경매상장"),
+        first_result=row.get("최초경매결과"),
+        final_date=row.get("최종경매상장"),
+        final_result=row.get("최종경매결과"),
+        excel_summary=row.get("경매요약") if "경매요약" in row.index else None,
     )
-    auction_final = _extract_auction(
-        row.get("최종경매상장"), row.get("최종경매낙찰"), is_final=True
-    )
-    auction_summary = _clean_str(row.get("경매요약"))
-
-    auctions = []
-    for a in (auction_first, auction_final):
-        if a is not None:
-            if auction_summary:
-                a["auction_name"] = auction_summary
-            auctions.append(a)
+    parsed.warnings.extend(auction_warnings)
 
     status = _compute_status(farm_out_date)
 
@@ -138,28 +148,100 @@ def _compute_status(farm_out_date: Optional[date]) -> str:
     return STATUS_ENDED
 
 
-def _extract_auction(
-    date_value: Any, price_or_result: Any, is_final: bool
-) -> Optional[dict[str, Any]]:
+def _parse_result_slot(date_value: Any, result_value: Any) -> Optional[dict[str, Any]]:
     """
-    최초경매상장/최초경매결과 또는 최종경매상장/최종경매낙찰 한 쌍을 AuctionRecord dict로 변환.
-    둘 다 비어있으면 None 반환 (해당 경매 이벤트 없음).
+    최초/최종 경매결과 슬롯 하나를 해석해 이벤트 dict로 변환한다.
+    - 숫자만 있으면 낙찰(그 숫자가 낙찰가)
+    - "유찰" 텍스트가 포함되어 있으면 유찰
+    - 그 외 텍스트가 있으면 예상치 못한 표기로 간주해 원문을 auction_name에 그대로 남김
+    - 공란이면 이 슬롯은 이벤트 없음 (None 반환)
     """
-    auction_date = _clean_date(date_value)
-    price_text = _clean_str(price_or_result)
-
-    if auction_date is None and not price_text:
+    result_text = _clean_str(result_value)
+    if result_text is None:
         return None
 
-    hammer_price, _ = _clean_currency(price_or_result)
+    auction_date = _clean_date(date_value)
+    digits = re.sub(r"[^\d]", "", result_text)
+
+    if digits:
+        hammer_price: Optional[int] = int(digits)
+        auction_name = "낙찰"
+    elif "유찰" in result_text:
+        hammer_price = None
+        auction_name = "유찰"
+    else:
+        # 예상 못한 표기(오타 등) - 원문 그대로 유지, 호출부에서 warning 처리
+        hammer_price = None
+        auction_name = result_text
 
     return {
         "auction_date": auction_date,
+        "auction_name": auction_name,
         "hammer_price": hammer_price,
         "buyer_name": None,  # 엑셀에 없음 -> 공란, 추후 수기 보완
-        "is_final": is_final,
-        "_raw_result_text": price_text,  # 숫자 변환 실패시(예: "유찰") 참고용, DB 저장 전 제거됨
+        "is_final": False,  # 최종 판정은 _build_auction_events에서 일괄 처리
     }
+
+
+def _build_auction_events(
+    horse_id: str,
+    first_date: Any,
+    first_result: Any,
+    final_date: Any,
+    final_result: Any,
+    excel_summary: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """최초/최종 경매결과 슬롯을 해석해 auction_record 리스트를 만들고, 검증 warning을 함께 반환한다."""
+    warnings: list[str] = []
+
+    first_event = _parse_result_slot(first_date, first_result)
+    final_event = _parse_result_slot(final_date, final_result)
+    events = [e for e in (first_event, final_event) if e is not None]
+
+    if not events:
+        # 최초/최종 모두 이벤트가 없음 = 상장 이력 자체가 없는 말 -> 미상장으로 명시 기록
+        events = [
+            {
+                "auction_date": None,
+                "auction_name": "미상장",
+                "hammer_price": None,
+                "buyer_name": None,
+                "is_final": False,
+            }
+        ]
+
+    # 낙찰 이벤트 중 가장 나중 슬롯에만 is_final=True 부여 (최종 있으면 최종, 없으면 최초)
+    won_indices = [i for i, e in enumerate(events) if e["auction_name"] == "낙찰"]
+    if won_indices:
+        events[won_indices[-1]]["is_final"] = True
+
+    # 예상치 못한 표기 경고
+    for e in events:
+        if e["auction_name"] not in KNOWN_AUCTION_RESULTS:
+            warnings.append(
+                f"마번 {horse_id}: 예상치 못한 경매결과 표기 '{e['auction_name']}'"
+            )
+
+    # 경매요약 컬럼이 있으면 교차검증 (있을 때만, 없으면 스킵)
+    summary_text = _clean_str(excel_summary)
+    if summary_text:
+        derived = _derive_summary(events)
+        if summary_text != derived:
+            warnings.append(
+                f"마번 {horse_id}: 경매요약 불일치 (엑셀='{summary_text}', 계산='{derived}')"
+            )
+
+    return events, warnings
+
+
+def _derive_summary(events: list[dict[str, Any]]) -> str:
+    """이벤트 목록으로부터 낙찰 > 유찰 > 미상장 우선순위로 요약 결과를 계산한다."""
+    names = {e["auction_name"] for e in events}
+    if "낙찰" in names:
+        return "낙찰"
+    if "유찰" in names:
+        return "유찰"
+    return "미상장"
 
 
 # ── 값 정제 헬퍼 ─────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 """
 경매관리 화면.
 - 탭1: 경매기록 등록 (마번 검증 + 최종낙찰 지정)
-- 탭2: 전체 경매기록 목록 (마명/신청인/상태 JOIN 포함)
+- 탭2: 전체 경매기록 목록 (마명/신청인/상태 JOIN 포함) + 요약 카드 3개
 """
 from __future__ import annotations
 
@@ -101,10 +101,29 @@ def _build_list_section():
     return list_container
 
 
+def _summary_card(label: str, value: str) -> None:
+    with ui.card().classes(CARD_CLASSES + " flex-1 p-4 items-center text-center gap-1"):
+        ui.label(label).classes("text-xs text-gray-400")
+        ui.label(value).classes("text-lg sm:text-xl font-semibold")
+
+
+def _build_summary_cards(summary: dict) -> None:
+    with ui.row().classes("w-full gap-3 mb-3"):
+        _summary_card("위탁종료 두수", f"{summary['total_count']}두")
+        _summary_card("낙찰", f"{summary['won_count']}두")
+        _summary_card("유찰", f"{summary['lost_count']}두")
+        _summary_card("미상장", f"{summary['unlisted_count']}두")
+        _summary_card("낙찰가 합계", f"{summary['total_price']:,}원")
+
+
 async def _refresh_list(list_container) -> None:
     list_container.clear()
     records = await run.io_bound(auction_service.list_all_records)
+    records = sorted(records, key=lambda r: r.get("horse_name") or "")
+    summary = await run.io_bound(auction_service.get_auction_summary, "위탁종료")
     with list_container:
+        _build_summary_cards(summary)
+
         if not records:
             empty_state("등록된 경매기록이 없습니다", icon="info")
             return
