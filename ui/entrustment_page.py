@@ -2,7 +2,8 @@
 위탁관리 화면.
 - 탭1: 개별 위탁 계약 등록 (A의 horses에 존재하는 마번인지 검증)
 - 탭2: 위탁 계약 목록 (상태별 필터, 상태 변경)
-- 탭3: 엑셀 일괄 등록 (미리보기 -> 확정)
+- 탭3: 연도별 명단 (사업연도 조회 + 엑셀 다운로드)
+- 탭4: 엑셀 일괄 등록 (미리보기 -> 확정)
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ def entrustment_page() -> None:
         with ui.tabs().props("dense").classes("w-full border-b border-gray-200") as tabs:
             tab_register = ui.tab("위탁 계약 등록").classes("flex-1 text-xs sm:text-sm px-1")
             tab_list = ui.tab("위탁 계약 목록").classes("flex-1 text-xs sm:text-sm px-1")
+            tab_year = ui.tab("연도별 명단").classes("flex-1 text-xs sm:text-sm px-1")
             tab_import = ui.tab("엑셀 일괄 등록").classes("flex-1 text-xs sm:text-sm px-1")
 
         with ui.tab_panels(tabs, value=tab_register).classes("w-full p-1 sm:p-4"):
@@ -31,6 +33,8 @@ def entrustment_page() -> None:
                 _build_register_section()
             with ui.tab_panel(tab_list):
                 _build_list_section()
+            with ui.tab_panel(tab_year):
+                _build_year_list_section()
             with ui.tab_panel(tab_import):
                 _build_import_section()
 
@@ -134,6 +138,124 @@ def _build_list_section() -> None:
 
         status_select.on_value_change(render_list)
         render_list()
+
+
+def _format_year_list_date(value) -> str:
+    if value is None:
+        return "-"
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    text = str(value).strip()
+    return text[:10] if text else "-"
+
+
+def _format_year_list_fee(value) -> str:
+    if value is None:
+        return "-"
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _build_year_list_section() -> None:
+    with ui.column().classes("w-full gap-3"):
+        with ui.row().classes("w-full items-end gap-3 flex-wrap"):
+            year_input = ui.number(label="사업연도").classes("w-40")
+
+            async def render_year_list() -> None:
+                list_container.clear()
+                result_label.set_text("")
+                if not year_input.value:
+                    ui.notify("사업연도를 입력하세요.", type="warning")
+                    with list_container:
+                        empty_state("사업연도를 입력한 뒤 조회하세요", icon="info")
+                    return
+
+                year = int(year_input.value)
+                horses = await run.io_bound(
+                    entrustment_service.list_horses, None, None, year
+                )
+                horses = sorted(horses, key=lambda h: h.name or "")
+                result_label.set_text(f"{year}년 위수탁마  {len(horses)}두")
+
+                with list_container:
+                    if not horses:
+                        empty_state("해당 사업연도 위수탁마가 없습니다", icon="info")
+                        return
+
+                    with ui.card().classes(CARD_CLASSES + " p-4 overflow-x-auto"):
+                        with ui.column().classes("min-w-[1100px]"):
+                            with ui.row().classes(
+                                "w-full flex-nowrap text-xs text-gray-400 font-medium "
+                                "bg-gray-50 rounded-t-md px-2 py-1 -mt-4 -mx-4 mb-2"
+                            ).props("no-wrap"):
+                                ui.label("마번").classes("w-24 shrink-0")
+                                ui.label("마명").classes("w-28 shrink-0")
+                                ui.label("부마명").classes("w-28 shrink-0")
+                                ui.label("성별").classes("w-12 shrink-0")
+                                ui.label("출생일").classes("w-28 shrink-0")
+                                ui.label("신청인").classes("w-28 shrink-0")
+                                ui.label("목장명").classes("w-32 shrink-0")
+                                ui.label("입사일").classes("w-28 shrink-0")
+                                ui.label("퇴사일").classes("w-28 shrink-0")
+                                ui.label("위탁비").classes("w-28 shrink-0 text-right")
+
+                            for h in horses:
+                                with ui.row().classes(
+                                    "w-full flex-nowrap items-center text-sm py-1.5 px-1 "
+                                    "-mx-1 rounded border-b border-gray-100 hover:bg-gray-50"
+                                ).props("no-wrap"):
+                                    ui.label(h.horse_id or "-").classes(
+                                        "w-24 shrink-0 text-gray-500"
+                                    )
+                                    ui.label(h.name or "-").classes(
+                                        "w-28 shrink-0 truncate"
+                                    )
+                                    ui.label(h.sire_name or "-").classes(
+                                        "w-28 shrink-0 truncate"
+                                    )
+                                    ui.label(h.sex or "-").classes("w-12 shrink-0")
+                                    ui.label(_format_year_list_date(h.birth_date)).classes(
+                                        "w-28 shrink-0"
+                                    )
+                                    ui.label(h.applicant_name or "-").classes(
+                                        "w-28 shrink-0 truncate"
+                                    )
+                                    ui.label(h.farm_name or "-").classes(
+                                        "w-32 shrink-0 truncate"
+                                    )
+                                    ui.label(_format_year_list_date(h.farm_in_date)).classes(
+                                        "w-28 shrink-0"
+                                    )
+                                    ui.label(_format_year_list_date(h.farm_out_date)).classes(
+                                        "w-28 shrink-0"
+                                    )
+                                    ui.label(_format_year_list_fee(h.entrustment_fee)).classes(
+                                        "w-28 shrink-0 text-right"
+                                    )
+
+            async def on_export() -> None:
+                if not year_input.value:
+                    ui.notify("사업연도를 입력하세요.", type="warning")
+                    return
+                year = int(year_input.value)
+                excel_bytes = await run.io_bound(
+                    entrustment_service.export_list_by_year, year
+                )
+                ui.download(excel_bytes, filename=f"위수탁마_{year}.xlsx")
+
+            ui.button("조회", on_click=render_year_list).props("color=primary")
+            ui.button("엑셀 다운로드", icon="download", on_click=on_export).props(
+                "outline color=primary"
+            )
+
+        year_input.on("keydown.enter", render_year_list)
+
+        result_label = ui.label("").classes("text-sm text-gray-500")
+        list_container = ui.column().classes("w-full")
+        with list_container:
+            empty_state("사업연도를 입력한 뒤 조회하세요", icon="info")
 
 
 def _open_edit_dialog(horse, on_done) -> None:

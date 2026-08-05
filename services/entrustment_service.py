@@ -15,8 +15,11 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+import io
 
 import pandas as pd
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 from pydantic import ValidationError
 
 from config.constants import (
@@ -375,6 +378,62 @@ def get_statistics_by_applicant() -> pd.DataFrame:
     return grouped
 
 
+_YEAR_LIST_EXPORT_COLUMNS = [
+    ("마번", "horse_id"),
+    ("마명", "name"),
+    ("부마명", "sire_name"),
+    ("성별", "sex"),
+    ("출생일", "birth_date"),
+    ("신청인", "applicant_name"),
+    ("목장명", "farm_name"),
+    ("입사일", "farm_in_date"),
+    ("퇴사일", "farm_out_date"),
+    ("위탁비", "entrustment_fee"),
+]
+
+
+def _format_export_date(value: Any) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    return str(value)[:10]
+
+
+def export_list_by_year(application_year: int) -> bytes:
+    """
+    사업연도별 위수탁마 명단을 엑셀 바이트로 생성한다.
+    조회 전용 출력물이며, 엑셀 일괄 등록 템플릿과는 무관하다.
+    """
+    horses = list_horses(application_year=application_year)
+    horses = sorted(horses, key=lambda h: h.name or "")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{application_year}년 위수탁마"
+
+    headers = [label for label, _ in _YEAR_LIST_EXPORT_COLUMNS]
+    ws.append(headers)
+
+    date_keys = {"birth_date", "farm_in_date", "farm_out_date"}
+    for h in horses:
+        data = h.model_dump()
+        row = []
+        for _, key in _YEAR_LIST_EXPORT_COLUMNS:
+            value = data.get(key)
+            if key in date_keys:
+                value = _format_export_date(value)
+            row.append(value if value is not None else "")
+        ws.append(row)
+
+    for i in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(i)].width = 14
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────
 
 
@@ -392,6 +451,9 @@ _ENTRUSTMENT_FIELDS = {
     "first_result",
     "final_listed_date",
     "final_result",
+    "sire_name",
+    "sex",
+    "birth_date",
 }
 
 
