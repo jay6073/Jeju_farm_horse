@@ -7,7 +7,8 @@
 [경매결과 파싱 규칙 - 갱신]
 - 최초경매결과 / 최종경매결과 두 컬럼은 각각 "결과" 슬롯이다.
   - 숫자만 들어있으면 낙찰(그 숫자가 낙찰가)
-  - "유찰" 텍스트면 유찰
+  - "상장취소" 텍스트면 미상장 (실질 상장 없음으로 간주; "경매취소" 등과 구분)
+  - "유찰" / "경매취소" / "해지" 텍스트면 유찰
   - 공란이면 그 슬롯은 이벤트 없음 (상장 자체가 없었거나 재상장이 없었음)
 - 두 슬롯이 모두 공란이면(=상장 이력이 아예 없음) "미상장" 레코드를 명시적으로 1건 생성한다.
   (예전 로직은 이 경우 auction_record 자체를 안 만들어서 미상장 말이 통째로 누락되는 버그가 있었음)
@@ -168,6 +169,9 @@ def _compute_status(farm_out_date: Optional[date]) -> str:
 
 def _format_result_for_display(result_text: str) -> str:
     """entrustment 저장/UI 표시용 결과 텍스트 정규화."""
+    # "상장취소"는 미상장. 그 외 취소/해지(경매취소 등)는 계약해지.
+    if "상장취소" in result_text:
+        return "미상장"
     if "취소" in result_text or "해지" in result_text:
         return "계약해지"
     if "유찰" in result_text:
@@ -285,8 +289,9 @@ def _parse_result_slot(
     """
     최초/최종 경매결과 슬롯 하나를 해석해 이벤트 dict로 변환한다.
     - 순수 숫자(쉼표/공백/'원' 허용)만 있으면 낙찰(그 숫자가 낙찰가)
-    - "취소" 또는 "유찰" 텍스트가 포함되어 있으면 유찰
-      (예: "경매취소(50,000,000)"처럼 숫자가 섞여 있어도 취소는 유찰로 간주)
+    - "상장취소"가 포함되어 있으면 미상장 (상장 자체가 무효로 간주)
+    - "경매취소"/"해지"/"유찰" 텍스트가 포함되어 있으면 유찰
+      (예: "경매취소(50,000,000)"처럼 숫자가 섞여 있어도 경매취소는 유찰로 간주)
     - 그 외 텍스트가 있으면 예상치 못한 표기로 간주해 원문을 auction_name에 그대로 남김
     - 공란이면 이 슬롯은 이벤트 없음 (None 반환)
     """
@@ -296,7 +301,10 @@ def _parse_result_slot(
 
     auction_date = _clean_date_last(date_value) if use_last_date else _clean_date(date_value)
 
-    if "취소" in result_text or "해지" in result_text or "유찰" in result_text:
+    if "상장취소" in result_text:
+        hammer_price = None
+        auction_name = "미상장"
+    elif "취소" in result_text or "해지" in result_text or "유찰" in result_text:
         hammer_price = None
         auction_name = "유찰"
     elif re.fullmatch(r"[\d,.\s원]+", result_text):

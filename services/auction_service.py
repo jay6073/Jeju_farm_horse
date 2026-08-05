@@ -187,6 +187,9 @@ def _has_lost_result(names: set[str]) -> bool:
     for name in names:
         if name in ("유찰", "계약해지"):
             return True
+        # 상장취소는 미상장 취급(엑셀 파싱과 동일). 그 외 취소/해지만 유찰.
+        if name and "상장취소" in name:
+            continue
         if name and ("취소" in name or "해지" in name):
             return True
     return False
@@ -198,7 +201,7 @@ def summarize_auction_result(names: set[str]) -> str | None:
         return "낙찰"
     if _has_lost_result(names):
         return "유찰"
-    if "미상장" in names:
+    if "미상장" in names or any(n and "상장취소" in n for n in names):
         return "미상장"
     return None
 
