@@ -243,6 +243,34 @@ def list_horses(
     return [Horse(**r) for r in rows]
 
 
+def search_horses(
+    application_year: Optional[int] = None,
+    status: Optional[str] = None,
+    applicant_name: Optional[str] = None,
+    keyword: Optional[str] = None,
+) -> list[Horse]:
+    """
+    복합 조건으로 위수탁마를 조회한다. (연도별 명단 / 내보내기용)
+    - application_year / status / applicant_name: list_horses와 동일 (빈 값은 미적용)
+    - keyword: 마번 또는 마명 부분일치 (대소문자 무시)
+    - 조건은 모두 AND, 마명순 정렬
+    """
+    horses = list_horses(
+        status=status or None,
+        applicant_name=applicant_name or None,
+        application_year=application_year,
+    )
+    kw = (keyword or "").strip().lower()
+    if kw:
+        horses = [
+            h
+            for h in horses
+            if (h.horse_id and kw in str(h.horse_id).lower())
+            or (h.name and kw in h.name.lower())
+        ]
+    return sorted(horses, key=lambda h: h.name or "")
+
+
 def list_unverified_ended_horses() -> list[str]:
     """
     위탁종료 상태이면서 아래 조건을 만족하는 마번 목록:
@@ -400,17 +428,26 @@ def _format_export_date(value: Any) -> str:
     return str(value)[:10]
 
 
-def export_list_by_year(application_year: int) -> bytes:
+def export_horse_list(horses: list[Horse], sheet_title: str = "위수탁마") -> bytes:
     """
-    사업연도별 위수탁마 명단을 엑셀 바이트로 생성한다.
+    위수탁마 목록을 엑셀 바이트로 생성한다.
     조회 전용 출력물이며, 엑셀 일괄 등록 템플릿과는 무관하다.
     """
-    horses = list_horses(application_year=application_year)
-    horses = sorted(horses, key=lambda h: h.name or "")
+    # 엑셀 시트명 제한(31자) 및 금지 문자 방어
+    safe_title = (
+        str(sheet_title)
+        .replace("/", "-")
+        .replace("\\", "-")
+        .replace("?", "")
+        .replace("*", "")
+        .replace("[", "")
+        .replace("]", "")
+        .replace(":", "-")
+    )[:31] or "위수탁마"
 
     wb = Workbook()
     ws = wb.active
-    ws.title = f"{application_year}년 위수탁마"
+    ws.title = safe_title
 
     headers = [label for label, _ in _YEAR_LIST_EXPORT_COLUMNS]
     ws.append(headers)
@@ -432,6 +469,32 @@ def export_list_by_year(application_year: int) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def export_list_by_year(application_year: int) -> bytes:
+    """사업연도별 명단 엑셀. export_horse_list의 연도 전용 래퍼."""
+    horses = search_horses(application_year=application_year)
+    return export_horse_list(horses, sheet_title=f"{application_year}년 위수탁마")
+
+
+def export_filtered_list(
+    application_year: Optional[int] = None,
+    status: Optional[str] = None,
+    applicant_name: Optional[str] = None,
+    keyword: Optional[str] = None,
+    sheet_title: str = "위수탁마_검색결과",
+) -> bytes:
+    """
+    search_horses와 동일한 복합 조건으로 조회한 뒤 엑셀로 만든다.
+    화면 조회 결과와 내보내기를 맞출 때 사용한다.
+    """
+    horses = search_horses(
+        application_year=application_year,
+        status=status,
+        applicant_name=applicant_name,
+        keyword=keyword,
+    )
+    return export_horse_list(horses, sheet_title=sheet_title)
 
 
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────

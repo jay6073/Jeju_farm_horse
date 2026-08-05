@@ -1,6 +1,7 @@
 """
 NiceGUI 앱 엔트리포인트.
-현재 등록된 화면: main_page(조회), manage_page(관리), dashboard_page(대시보드).
+현재 등록된 화면: main_page(조회), manage_page(관리), dashboard_page(대시보드),
+entrustment/auction/racing, profile_page(통합조회).
 """
 
 from dotenv import load_dotenv
@@ -15,6 +16,7 @@ from ui import manage_page  # noqa: F401
 from ui import dashboard_page  # noqa: F401
 from ui import auction_page  # noqa: F401
 from ui import racing_page  # noqa: F401
+from ui import profile_page  # noqa: F401
 from ui.theme import apply_global_theme
 
 

@@ -18,6 +18,7 @@ _PAGES = [
     ("/entrustment", "위탁관리", "assignment"),
     ("/auction", "경매관리", "gavel"),
     ("/racing", "경주성적", "flag"),
+    ("/profile", "통합조회", "folder_shared"),
 ]
 
 

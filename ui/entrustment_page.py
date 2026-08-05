@@ -2,7 +2,7 @@
 위탁관리 화면.
 - 탭1: 개별 위탁 계약 등록 (A의 horses에 존재하는 마번인지 검증)
 - 탭2: 위탁 계약 목록 (상태별 필터, 상태 변경)
-- 탭3: 연도별 명단 (사업연도 조회 + 엑셀 다운로드)
+- 탭3: 명단 조회 (사업연도·상태·신청인·마번/마명 복합 필터 + 엑셀 다운로드)
 - 탭4: 엑셀 일괄 등록 (미리보기 -> 확정)
 """
 from __future__ import annotations
@@ -15,6 +15,8 @@ from services.entrustment_service import EntrustmentServiceError, a_horse_exists
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES, empty_state
 
+_STATUS_FILTER_OPTIONS = ["전체", *HORSE_STATUS_OPTIONS]
+
 
 @ui.page("/entrustment")
 def entrustment_page() -> None:
@@ -25,7 +27,7 @@ def entrustment_page() -> None:
         with ui.tabs().props("dense").classes("w-full border-b border-gray-200") as tabs:
             tab_register = ui.tab("위탁 계약 등록").classes("flex-1 text-xs sm:text-sm px-1")
             tab_list = ui.tab("위탁 계약 목록").classes("flex-1 text-xs sm:text-sm px-1")
-            tab_year = ui.tab("연도별 명단").classes("flex-1 text-xs sm:text-sm px-1")
+            tab_year = ui.tab("명단 조회").classes("flex-1 text-xs sm:text-sm px-1")
             tab_import = ui.tab("엑셀 일괄 등록").classes("flex-1 text-xs sm:text-sm px-1")
 
         with ui.tab_panels(tabs, value=tab_register).classes("w-full p-1 sm:p-4"):
@@ -159,29 +161,67 @@ def _format_year_list_fee(value) -> str:
 
 
 def _build_year_list_section() -> None:
+    """명단 조회: 복합 필터로 조회하고 동일 조건으로 엑셀 다운로드."""
     with ui.column().classes("w-full gap-3"):
+        ui.label(
+            "사업연도·상태·신청인·마번/마명 조건을 조합해 조회할 수 있습니다. "
+            "엑셀은 현재 필터와 동일한 결과가 내려갑니다."
+        ).classes("text-sm text-gray-500")
+
         with ui.row().classes("w-full items-end gap-3 flex-wrap"):
-            year_input = ui.number(label="사업연도").classes("w-40")
+            year_input = ui.number(label="사업연도").classes("w-36")
+            status_select = ui.select(
+                options=_STATUS_FILTER_OPTIONS, value="전체", label="상태"
+            ).classes("w-36")
+            applicant_input = ui.input(label="신청인").classes("w-44")
+            keyword_input = ui.input(label="마번/마명").classes("w-44")
+
+            def _read_filters() -> tuple:
+                year = int(year_input.value) if year_input.value else None
+                status = (
+                    None
+                    if not status_select.value or status_select.value == "전체"
+                    else status_select.value
+                )
+                applicant = (applicant_input.value or "").strip() or None
+                keyword = (keyword_input.value or "").strip() or None
+                return year, status, applicant, keyword
+
+            def _filter_summary(year, status, applicant, keyword) -> str:
+                parts = []
+                if year is not None:
+                    parts.append(f"{year}년")
+                if status:
+                    parts.append(status)
+                if applicant:
+                    parts.append(f"신청인「{applicant}」")
+                if keyword:
+                    parts.append(f"검색「{keyword}」")
+                return " · ".join(parts) if parts else "전체"
 
             async def render_year_list() -> None:
                 list_container.clear()
                 result_label.set_text("")
-                if not year_input.value:
-                    ui.notify("사업연도를 입력하세요.", type="warning")
+                year, status, applicant, keyword = _read_filters()
+                if not any([year is not None, status, applicant, keyword]):
+                    ui.notify("필터를 하나 이상 입력하세요.", type="warning")
                     with list_container:
-                        empty_state("사업연도를 입력한 뒤 조회하세요", icon="info")
+                        empty_state("필터를 하나 이상 입력한 뒤 조회하세요", icon="info")
                     return
 
-                year = int(year_input.value)
                 horses = await run.io_bound(
-                    entrustment_service.list_horses, None, None, year
+                    entrustment_service.search_horses,
+                    year,
+                    status,
+                    applicant,
+                    keyword,
                 )
-                horses = sorted(horses, key=lambda h: h.name or "")
-                result_label.set_text(f"{year}년 위수탁마  {len(horses)}두")
+                summary = _filter_summary(year, status, applicant, keyword)
+                result_label.set_text(f"{summary}  {len(horses)}두")
 
                 with list_container:
                     if not horses:
-                        empty_state("해당 사업연도 위수탁마가 없습니다", icon="info")
+                        empty_state("조건에 맞는 위수탁마가 없습니다", icon="info")
                         return
 
                     with ui.card().classes(CARD_CLASSES + " p-4 overflow-x-auto"):
@@ -236,14 +276,23 @@ def _build_year_list_section() -> None:
                                     )
 
             async def on_export() -> None:
-                if not year_input.value:
-                    ui.notify("사업연도를 입력하세요.", type="warning")
+                year, status, applicant, keyword = _read_filters()
+                if not any([year is not None, status, applicant, keyword]):
+                    ui.notify("필터를 하나 이상 입력하세요.", type="warning")
                     return
-                year = int(year_input.value)
+
+                summary = _filter_summary(year, status, applicant, keyword)
+                sheet_title = summary.replace(" · ", "_")[:31]
                 excel_bytes = await run.io_bound(
-                    entrustment_service.export_list_by_year, year
+                    entrustment_service.export_filtered_list,
+                    year,
+                    status,
+                    applicant,
+                    keyword,
+                    sheet_title,
                 )
-                ui.download(excel_bytes, filename=f"위수탁마_{year}.xlsx")
+                filename_year = year if year is not None else "검색"
+                ui.download(excel_bytes, filename=f"위수탁마_{filename_year}.xlsx")
 
             ui.button("조회", on_click=render_year_list).props("color=primary")
             ui.button("엑셀 다운로드", icon="download", on_click=on_export).props(
@@ -251,11 +300,13 @@ def _build_year_list_section() -> None:
             )
 
         year_input.on("keydown.enter", render_year_list)
+        applicant_input.on("keydown.enter", render_year_list)
+        keyword_input.on("keydown.enter", render_year_list)
 
         result_label = ui.label("").classes("text-sm text-gray-500")
         list_container = ui.column().classes("w-full")
         with list_container:
-            empty_state("사업연도를 입력한 뒤 조회하세요", icon="info")
+            empty_state("필터를 하나 이상 입력한 뒤 조회하세요", icon="info")
 
 
 def _open_edit_dialog(horse, on_done) -> None:
