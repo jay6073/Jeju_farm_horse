@@ -60,6 +60,26 @@ def main():
         except ValueError:
             check("상태발생일자 누락 시 ValueError 발생", True)
 
+        h_custom = Horse(
+            마명="사유말",
+            마종="씨수말",
+            상태="장기외박",
+            상태발생일자="2026-08-07",
+        )
+        check("고정 목록 외 사유 상태명 허용", h_custom.상태 == "장기외박")
+        check("사유 상태는 is_active False", h_custom.is_active is False)
+
+        try:
+            Horse(
+                마명="긴사유",
+                마종="씨수말",
+                상태="이" * 31,
+                상태발생일자="2026-08-07",
+            )
+            check("30자 초과 상태는 예외 발생해야 함", False)
+        except ValueError:
+            check("30자 초과 상태는 ValueError 발생", True)
+
         # --- Repository insert / 조회 ---
         h2 = Horse(마명="번개", 마종="위수탁마", 마번="22310", 품종코드="00100")
         h3 = Horse(마명="질풍", 마종="위수탁마", 품종코드="00300")
@@ -85,6 +105,20 @@ def main():
         active_wsg_after = repo.get_active_names_by_species("위수탁마")
         check("위수탁종료 처리 후 위수탁마 오늘기준 1두로 감소", len(active_wsg_after) == 1)
         check("남은 위수탁마는 질풍", active_wsg_after[0].마명 == "질풍")
+
+        # --- 정상 복귀 ---
+        restored = repo.update_status_bulk([id2], "정상", None)
+        check("정상 복귀 반영 건수 1", restored == 1)
+        restored_horse = repo.get_by_id(id2)
+        check("복귀 후 상태 정상", restored_horse.상태 == "정상")
+        check("복귀 후 상태발생일자 None", restored_horse.상태발생일자 is None)
+        active_wsg_restored = repo.get_active_names_by_species("위수탁마")
+        check("정상 복귀 후 위수탁마 오늘기준 2두", len(active_wsg_restored) == 2)
+
+        # 이후 집계 검증을 위해 다시 위수탁종료 처리
+        repo.update_status_bulk([id2], "위수탁종료", "2026-06-10")
+        active_wsg_after = repo.get_active_names_by_species("위수탁마")
+        check("재종료 후 위수탁마 오늘기준 1두", len(active_wsg_after) == 1)
 
         all_wsg = repo.get_all_by_species("위수탁마")
         check("상태 무관 전체 조회는 여전히 2두", len(all_wsg) == 2)

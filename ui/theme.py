@@ -19,8 +19,10 @@ _STATUS_BADGE_STYLE: dict[str, str] = {
     "폐사": "bg-gray-200 text-gray-600",
     "위수탁종료": "bg-gray-200 text-gray-600",
     "매각": "bg-gray-200 text-gray-600",
-    "기타": "bg-orange-100 text-orange-700",
+    "기타": "bg-orange-100 text-orange-700",  # 레거시 값
 }
+# 직접 입력 사유 등 고정 목록에 없는 상태
+_STATUS_BADGE_FALLBACK = "bg-orange-100 text-orange-700"
 
 
 def apply_global_theme() -> None:
@@ -39,7 +41,7 @@ def apply_global_theme() -> None:
 
 def status_badge(status: str) -> None:
     """상태값에 맞는 색의 pill 뱃지 하나를 렌더링한다."""
-    style = _STATUS_BADGE_STYLE.get(status, "bg-gray-200 text-gray-600")
+    style = _STATUS_BADGE_STYLE.get(status, _STATUS_BADGE_FALLBACK)
     ui.label(status).classes(f"text-xs px-2 py-0.5 rounded-full {style} inline-block")
 
 

@@ -94,13 +94,7 @@ def _sync_a_horse_status(horse_id: str, entrustment_status: str, farm_out_date) 
         return
 
     if entrustment_status == STATUS_ENTRUSTED:
-        # update_status_bulk는 상태=정상으로의 복귀를 허용하지 않으므로 직접 SQL 실행
-        with _a_get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE horses SET 상태 = %s, 상태발생일자 = NULL WHERE id = %s",
-                    (STATUS_NORMAL, a_horse.id),
-                )
+        _a_horse_repo.update_status_bulk([a_horse.id], STATUS_NORMAL, None)
     else:
         if hasattr(farm_out_date, "isoformat"):
             status_date = farm_out_date.isoformat()

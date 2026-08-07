@@ -19,10 +19,43 @@ HORSE_SPECIES: list[str] = ["씨수말", "교육마", "관상마", "위수탁마
 
 # 상태 옵션
 STATUS_NORMAL: str = "정상"
+# UI 전용 선택값. DB에는 저장하지 않고, 사용자가 입력한 사유 문자열이 상태로 저장된다.
+STATUS_CUSTOM_OPTION: str = "직접 입력"
+# 레거시 '기타'는 기존 데이터 표시용으로 ALL_STATUSES에만 남긴다.
 NON_NORMAL_STATUSES: list[str] = ["폐사", "위수탁종료", "매각", "기타"]
-# 관리 화면에서 수동 변경 가능한 상태 (위수탁종료는 entrustment_service가 위수탁마에만 자동 반영)
-MANAGEABLE_STATUSES: list[str] = [s for s in NON_NORMAL_STATUSES if s != "위수탁종료"]
+FIXED_MANAGEABLE_STATUSES: list[str] = [STATUS_NORMAL, "폐사", "매각"]
+# 관리 화면 선택지: 고정 상태 + 직접 입력 (위수탁종료·기타 제외)
+MANAGEABLE_STATUSES: list[str] = FIXED_MANAGEABLE_STATUSES + [STATUS_CUSTOM_OPTION]
+# 고정 상태값(뱃지·기존 데이터). 저장은 이 목록 외 짧은 사유 문자열도 허용한다.
 ALL_STATUSES: list[str] = [STATUS_NORMAL] + NON_NORMAL_STATUSES
+# 직접 입력 사유로 쓰면 안 되는 예약어 (UI 옵션명 포함)
+STATUS_RESERVED_FOR_CUSTOM: frozenset[str] = frozenset(
+    ALL_STATUSES + [STATUS_CUSTOM_OPTION]
+)
+STATUS_MAX_LENGTH: int = 30
+
+
+def normalize_status(상태: str) -> str:
+    """상태 문자열을 정리·검증한다. 고정값과 직접 입력 사유를 모두 허용."""
+    if 상태 is None or not str(상태).strip():
+        raise ValueError("상태는 비어 있을 수 없습니다.")
+    cleaned = str(상태).strip()
+    if len(cleaned) > STATUS_MAX_LENGTH:
+        raise ValueError(
+            f"상태는 {STATUS_MAX_LENGTH}자 이하여야 합니다: {cleaned!r}"
+        )
+    return cleaned
+
+
+def normalize_custom_status(사유: str) -> str:
+    """관리 화면 '직접 입력' 사유를 검증한다. 예약어·공백·길이 초과를 막는다."""
+    cleaned = normalize_status(사유)
+    if cleaned in STATUS_RESERVED_FOR_CUSTOM:
+        raise ValueError(
+            f"'{cleaned}'는 직접 입력 사유로 쓸 수 없습니다. "
+            "다른 상태 옵션을 선택하거나 다른 사유를 입력하세요."
+        )
+    return cleaned
 
 # horsepia.com의 hrsGbCd(품종 구분코드). 목장 "마종"(용도 분류)과는 별개 축의 값이며,
 # 씨수말이든 위수탁마든 실제 품종에 따라 이 코드가 결정된다.
@@ -81,11 +114,7 @@ class Horse:
                 f"품종코드 형식이 올바르지 않습니다: {self.품종코드!r} "
                 "(horsepia 상세페이지 URL의 hrsGbCd 값, 5자리 숫자를 그대로 입력해야 합니다)"
             )
-        if self.상태 not in ALL_STATUSES:
-            raise ValueError(
-                f"유효하지 않은 상태입니다: {self.상태!r} "
-                f"(허용값: {', '.join(ALL_STATUSES)})"
-            )
+        self.상태 = normalize_status(self.상태)
         if self.상태 != STATUS_NORMAL and not self.상태발생일자:
             raise ValueError("정상이 아닌 상태는 상태발생일자가 반드시 필요합니다.")
         if self.상태 == STATUS_NORMAL and self.상태발생일자:

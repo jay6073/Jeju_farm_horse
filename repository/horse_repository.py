@@ -11,14 +11,12 @@ from typing import Any, Iterator, Optional
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from models.horse import Horse, STATUS_NORMAL, HORSE_SPECIES, ALL_STATUSES
+from models.horse import Horse, STATUS_NORMAL, HORSE_SPECIES, normalize_status
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 POOL_MIN_SIZE = int(os.environ.get("DATABASE_POOL_MIN", "1"))
 POOL_MAX_SIZE = int(os.environ.get("DATABASE_POOL_MAX", "4"))
 POOL_TIMEOUT = int(os.environ.get("DATABASE_POOL_TIMEOUT", "10"))
-
-_STATUS_ALLOWED = ", ".join(f"'{s}'" for s in ALL_STATUSES)
 
 pool = ConnectionPool(
     conninfo=DATABASE_URL,
@@ -28,6 +26,7 @@ pool = ConnectionPool(
     open=False,
 )
 
+# 상태값은 앱에서 검증한다. 사유 직접 입력을 허용하므로 CHECK 목록 제약은 두지 않는다.
 _SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS horses (
     id             BIGSERIAL PRIMARY KEY,
@@ -36,9 +35,7 @@ CREATE TABLE IF NOT EXISTS horses (
     마종           TEXT NOT NULL,
     품종코드       TEXT,
     상태           TEXT NOT NULL DEFAULT '{STATUS_NORMAL}',
-    상태발생일자   DATE,
-
-    CONSTRAINT chk_horses_status CHECK (상태 IN ({_STATUS_ALLOWED}))
+    상태발생일자   DATE
 );
 """
 
@@ -65,8 +62,7 @@ def _validate_horse(horse: Horse) -> None:
         raise ValueError("마명은 필수입니다.")
     if not horse.마종:
         raise ValueError("마종은 필수입니다.")
-    if horse.상태 not in ALL_STATUSES:
-        raise ValueError(f"허용되지 않는 상태입니다: {horse.상태}")
+    normalize_status(horse.상태)
 
 
 def init_db() -> None:
@@ -78,6 +74,10 @@ def init_db() -> None:
         try:
             with conn.cursor() as cur:
                 cur.execute(_SCHEMA)
+                # 기존 DB의 고정 목록 CHECK를 제거해 사유 직접 입력을 허용한다.
+                cur.execute(
+                    "ALTER TABLE horses DROP CONSTRAINT IF EXISTS chk_horses_status;"
+                )
                 cur.execute("DROP INDEX IF EXISTS uq_horses_mamyeong;")
                 cur.execute("DROP INDEX IF EXISTS uq_horses_identity;")
                 cur.execute(
@@ -281,11 +281,16 @@ class HorseRepository:
 
     # ---------- 갱신 ----------
 
-    def update_status_bulk(self, horse_ids: list[int], 상태: str, 상태발생일자: str) -> int:
+    def update_status_bulk(
+        self, horse_ids: list[int], 상태: str, 상태발생일자: Optional[str]
+    ) -> int:
         if not horse_ids:
             return 0
+        상태 = normalize_status(상태)
         if 상태 == STATUS_NORMAL:
-            raise ValueError("상태 변경은 정상이 아닌 상태로만 가능합니다.")
+            상태발생일자 = None
+        elif not 상태발생일자:
+            raise ValueError("정상이 아닌 상태는 상태발생일자가 반드시 필요합니다.")
         with _get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(

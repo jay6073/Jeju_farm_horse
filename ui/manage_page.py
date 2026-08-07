@@ -3,7 +3,7 @@
 
 세 가지 쓰기 작업을 탭으로 나눠 한 화면에 모은다:
 1. 개별 추가
-2. 보유상태 변경 (다중 선택 + 상태/발생일자, 물리 삭제 없음)
+2. 보유상태 변경 (다중 선택 + 상태/발생일자/직접입력 사유, 정상 복귀 포함)
 3. 엑셀 일괄 업로드 (최초 등록용, 미리보기 확인 후 반영)
 
 [통합 시 변경사항] 상단 탭 네비게이션 -> 좌측 사이드바로 전환.
@@ -14,7 +14,15 @@ from datetime import date
 
 from nicegui import events, run, ui
 
-from models.horse import HORSE_SPECIES, MANAGEABLE_STATUSES, Horse
+from models.horse import (
+    HORSE_SPECIES,
+    MANAGEABLE_STATUSES,
+    STATUS_CUSTOM_OPTION,
+    STATUS_MAX_LENGTH,
+    STATUS_NORMAL,
+    Horse,
+    normalize_custom_status,
+)
 from repository.horse_repository import HorseRepository
 from services import import_service
 from services.import_service import ImportValidationError
@@ -140,6 +148,25 @@ def _build_status_change_section() -> None:
                         date_input = ui.input(
                             label="발생일자", value=date.today().isoformat()
                         ).props("type=date").classes("flex-1")
+                    reason_input = ui.input(
+                        label="사유",
+                        placeholder="예: 장기외박, 이송중",
+                    ).props(f"maxlength={STATUS_MAX_LENGTH}").classes("w-full")
+                    reason_input.set_visibility(False)
+
+                    def _on_status_value_change() -> None:
+                        is_normal = status_select.value == STATUS_NORMAL
+                        is_custom = status_select.value == STATUS_CUSTOM_OPTION
+                        date_input.set_visibility(not is_normal)
+                        reason_input.set_visibility(is_custom)
+                        if is_normal:
+                            date_input.value = None
+                        elif not date_input.value:
+                            date_input.value = date.today().isoformat()
+                        if not is_custom:
+                            reason_input.value = ""
+
+                    status_select.on_value_change(_on_status_value_change)
 
                     def on_change_status() -> None:
                         ids = list(checked_ids)
@@ -149,30 +176,55 @@ def _build_status_change_section() -> None:
                         if not status_select.value:
                             ui.notify("변경할 상태를 선택하세요.", type="warning")
                             return
-                        if not date_input.value:
+
+                        is_normal = status_select.value == STATUS_NORMAL
+                        is_custom = status_select.value == STATUS_CUSTOM_OPTION
+                        status_date = None if is_normal else date_input.value
+                        if not is_normal and not status_date:
                             ui.notify("발생일자를 입력하세요.", type="warning")
                             return
+
+                        if is_custom:
+                            try:
+                                new_status = normalize_custom_status(
+                                    reason_input.value or ""
+                                )
+                            except ValueError as e:
+                                ui.notify(str(e), type="warning")
+                                return
+                        else:
+                            new_status = status_select.value
 
                         async def confirm() -> None:
                             dialog.close()
                             updated = await run.io_bound(
                                 _repo.update_status_bulk,
                                 ids,
-                                status_select.value,
-                                date_input.value,
+                                new_status,
+                                status_date,
                             )
                             ui.notify(f"{updated}마리 상태 변경 완료", type="positive")
                             await render_list()
 
-                        with ui.dialog() as dialog, ui.card():
-                            ui.label(
-                                f"{len(ids)}마리를 [{status_select.value}]로 "
-                                f"변경하시겠습니까? (발생일자: {date_input.value})"
+                        if is_normal:
+                            confirm_text = (
+                                f"{len(ids)}마리를 보유중(정상)으로 "
+                                f"복귀하시겠습니까?"
                             )
+                            confirm_color = "primary"
+                        else:
+                            confirm_text = (
+                                f"{len(ids)}마리를 [{new_status}]로 "
+                                f"변경하시겠습니까? (발생일자: {status_date})"
+                            )
+                            confirm_color = "negative"
+
+                        with ui.dialog() as dialog, ui.card():
+                            ui.label(confirm_text)
                             with ui.row().classes("w-full justify-end gap-2"):
                                 ui.button("취소", on_click=dialog.close).props("flat")
                                 ui.button("확인", on_click=confirm).props(
-                                    "color=negative"
+                                    f"color={confirm_color}"
                                 )
                         dialog.open()
 
