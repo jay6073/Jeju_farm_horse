@@ -11,7 +11,14 @@ from typing import Any, Iterator, Optional
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from models.horse import Horse, STATUS_NORMAL, HORSE_SPECIES, normalize_status
+from models.horse import (
+    Horse,
+    STATUS_NORMAL,
+    HORSE_SPECIES,
+    TRANSFERABLE_SPECIES,
+    TRANSFER_TARGET_SPECIES,
+    normalize_status,
+)
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 POOL_MIN_SIZE = int(os.environ.get("DATABASE_POOL_MIN", "1"))
@@ -300,6 +307,54 @@ class HorseRepository:
                     WHERE id = ANY(%s)
                     """,
                     (상태, 상태발생일자, horse_ids),
+                )
+                return cur.rowcount
+
+    def update_species_bulk(self, horse_ids: list[int], 마종: str) -> int:
+        """
+        선택한 말들의 마종(용도)을 일괄 변경한다.
+
+        규칙:
+        - 도착 마종은 TRANSFER_TARGET_SPECIES만 허용 (위수탁마로 변경 불가)
+        - 출발 마종은 TRANSFERABLE_SPECIES만 허용 (위수탁마는 변경 대상에서 제외)
+        - 씨수말 ↔ 다른 마종 복귀·전환 모두 허용
+        """
+        if not horse_ids:
+            return 0
+        if 마종 not in TRANSFER_TARGET_SPECIES:
+            raise ValueError(
+                f"용도변경할 수 없는 마종입니다: {마종!r} "
+                f"(허용: {', '.join(TRANSFER_TARGET_SPECIES)})"
+            )
+
+        with _get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT id, 마종 FROM horses WHERE id = ANY(%s)",
+                    (horse_ids,),
+                )
+                rows = cur.fetchall()
+                if len(rows) != len(set(horse_ids)):
+                    raise ValueError("존재하지 않는 보유마가 포함되어 있습니다.")
+
+                for row in rows:
+                    current = row["마종"]
+                    if current not in TRANSFERABLE_SPECIES:
+                        raise ValueError(
+                            f"마종 '{current}'인 말은 용도변경할 수 없습니다."
+                        )
+                    if current == 마종:
+                        raise ValueError(
+                            f"이미 '{마종}'인 말이 포함되어 있습니다."
+                        )
+
+                cur.execute(
+                    """
+                    UPDATE horses
+                    SET 마종 = %s
+                    WHERE id = ANY(%s)
+                    """,
+                    (마종, horse_ids),
                 )
                 return cur.rowcount
 

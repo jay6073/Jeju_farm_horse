@@ -1,10 +1,11 @@
 """
 관리 화면 (아키텍처 프롬프트 4-2절).
 
-세 가지 쓰기 작업을 탭으로 나눠 한 화면에 모은다:
+쓰기 작업을 탭으로 나눠 한 화면에 모은다:
 1. 개별 추가
 2. 보유상태 변경 (다중 선택 + 상태/발생일자/직접입력 사유, 정상 복귀 포함)
-3. 엑셀 일괄 업로드 (최초 등록용, 미리보기 확인 후 반영)
+3. 용도변경 (마종 변경, 위수탁마 제외)
+4. 엑셀 일괄 업로드 (최초 등록용, 미리보기 확인 후 반영)
 
 [통합 시 변경사항] 상단 탭 네비게이션 -> 좌측 사이드바로 전환.
 """
@@ -20,6 +21,8 @@ from models.horse import (
     STATUS_CUSTOM_OPTION,
     STATUS_MAX_LENGTH,
     STATUS_NORMAL,
+    TRANSFERABLE_SPECIES,
+    TRANSFER_TARGET_SPECIES,
     Horse,
     normalize_custom_status,
 )
@@ -44,6 +47,7 @@ def manage_page() -> None:
         with ui.tabs().props("dense").classes("w-full border-b border-gray-200") as tabs:
             tab_add = ui.tab("개별 추가").classes("flex-1 text-xs sm:text-sm px-1")
             tab_status = ui.tab("보유상태 변경").classes("flex-1 text-xs sm:text-sm px-1")
+            tab_species = ui.tab("용도변경").classes("flex-1 text-xs sm:text-sm px-1")
             tab_import = ui.tab("엑셀 일괄 등록").classes("flex-1 text-xs sm:text-sm px-1")
 
         with ui.tab_panels(tabs, value=tab_add).classes("w-full p-1 sm:p-4"):
@@ -51,6 +55,8 @@ def manage_page() -> None:
                 _build_add_section()
             with ui.tab_panel(tab_status):
                 _build_status_change_section()
+            with ui.tab_panel(tab_species):
+                _build_species_change_section()
             with ui.tab_panel(tab_import):
                 _build_import_section()
 
@@ -229,6 +235,107 @@ def _build_status_change_section() -> None:
                         dialog.open()
 
                     ui.button("상태 변경", on_click=on_change_status).props(
+                        "color=primary"
+                    )
+
+        species_select.on_value_change(render_list)
+
+
+def _build_species_change_section() -> None:
+    checked_ids: set[int] = set()
+
+    with ui.column().classes("w-full max-w-2xl gap-3"):
+        ui.label(
+            "씨수말·교육마·관상마·기타마 사이에서 용도를 변경할 수 있습니다. "
+            "위수탁마는 이 화면에서 변경할 수 없습니다."
+        ).classes("text-xs text-gray-400 break-words w-full")
+
+        species_select = ui.select(
+            options=TRANSFERABLE_SPECIES, label="현재 마종"
+        ).classes("w-full")
+        list_container = ui.column().classes("w-full")
+        form_container = ui.column().classes("w-full")
+
+        async def render_list() -> None:
+            list_container.clear()
+            form_container.clear()
+            checked_ids.clear()
+            species = species_select.value
+            if not species:
+                return
+
+            horses = await run.io_bound(_repo.get_all_by_species, species)
+            target_options = [s for s in TRANSFER_TARGET_SPECIES if s != species]
+
+            with list_container:
+                if not horses:
+                    empty_state(f"{species}에 해당하는 보유마가 없습니다", icon="info")
+                    return
+                with ui.card().classes(CARD_CLASSES + " p-4"):
+                    for horse in horses:
+                        with ui.row().classes("items-center gap-3 w-full"):
+
+                            def on_check(e, hid=horse.id) -> None:
+                                if e.value:
+                                    checked_ids.add(hid)
+                                else:
+                                    checked_ids.discard(hid)
+
+                            ui.checkbox(on_change=on_check)
+                            ui.label(horse.마명).classes("flex-1")
+                            status_badge(horse.상태)
+
+            with form_container:
+                if not target_options:
+                    return
+                with ui.card().classes(CARD_CLASSES + " p-4"):
+                    ui.label("선택한 말들의 용도(마종) 변경").classes(
+                        "text-sm text-gray-500 mb-2"
+                    )
+                    target_select = ui.select(
+                        options=target_options, label="변경할 마종"
+                    ).classes("w-full")
+
+                    def on_change_species() -> None:
+                        ids = list(checked_ids)
+                        if not ids:
+                            ui.notify("변경할 말을 선택하세요.", type="warning")
+                            return
+                        if not target_select.value:
+                            ui.notify("변경할 마종을 선택하세요.", type="warning")
+                            return
+
+                        async def confirm() -> None:
+                            dialog.close()
+                            try:
+                                updated = await run.io_bound(
+                                    _repo.update_species_bulk,
+                                    ids,
+                                    target_select.value,
+                                )
+                            except ValueError as e:
+                                ui.notify(str(e), type="negative")
+                                return
+                            ui.notify(
+                                f"{updated}마리 용도변경 완료 "
+                                f"({species} → {target_select.value})",
+                                type="positive",
+                            )
+                            await render_list()
+
+                        with ui.dialog() as dialog, ui.card():
+                            ui.label(
+                                f"{len(ids)}마리를 [{species}]에서 "
+                                f"[{target_select.value}](으)로 변경하시겠습니까?"
+                            )
+                            with ui.row().classes("w-full justify-end gap-2"):
+                                ui.button("취소", on_click=dialog.close).props("flat")
+                                ui.button("확인", on_click=confirm).props(
+                                    "color=primary"
+                                )
+                        dialog.open()
+
+                    ui.button("용도 변경", on_click=on_change_species).props(
                         "color=primary"
                     )
 

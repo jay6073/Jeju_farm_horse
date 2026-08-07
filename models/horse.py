@@ -16,6 +16,9 @@ from shared.horse_number import normalize_horse_number  # noqa: F401
 
 # 마종 옵션 (main_page, manage_page의 select 옵션과 동일하게 유지)
 HORSE_SPECIES: list[str] = ["씨수말", "교육마", "관상마", "위수탁마", "기타마"]
+# 용도변경 출발/도착 가능 마종 (위수탁마 제외). 씨수말로의 복귀도 허용한다.
+TRANSFERABLE_SPECIES: list[str] = [s for s in HORSE_SPECIES if s != "위수탁마"]
+TRANSFER_TARGET_SPECIES: list[str] = list(TRANSFERABLE_SPECIES)
 
 # 상태 옵션
 STATUS_NORMAL: str = "정상"
