@@ -4,13 +4,17 @@
 - 탭2: 위탁 계약 목록 (상태별 필터, 상태 변경)
 - 탭3: 명단 조회 (사업연도·상태·신청인·마번/마명 복합 필터 + 엑셀 다운로드)
 - 탭4: 엑셀 일괄 등록 (미리보기 -> 확정)
+- 탭5: 연간·전체 통계 (1단계: UI 골격 + 집계 스텁)
 """
 from __future__ import annotations
+
+from datetime import date
 
 from nicegui import events, run, ui
 
 from config.constants import HORSE_STATUS_OPTIONS
-from services import entrustment_service, entrustment_import_service
+from services import annual_report_service, entrustment_service, entrustment_import_service
+from services.annual_report_service import ReportPreview, ReportScope
 from services.entrustment_service import EntrustmentServiceError, a_horse_exists
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES, empty_state
@@ -24,11 +28,24 @@ def entrustment_page() -> None:
     with content:
         ui.label("위탁관리").classes("text-lg sm:text-xl font-medium")
 
-        with ui.tabs().props("dense").classes("w-full border-b border-gray-200") as tabs:
-            tab_register = ui.tab("위탁 계약 등록").classes("flex-1 text-xs sm:text-sm px-1")
-            tab_list = ui.tab("위탁 계약 목록").classes("flex-1 text-xs sm:text-sm px-1")
-            tab_year = ui.tab("명단 조회").classes("flex-1 text-xs sm:text-sm px-1")
-            tab_import = ui.tab("엑셀 일괄 등록").classes("flex-1 text-xs sm:text-sm px-1")
+        with ui.tabs().props("dense").classes(
+            "w-full border-b border-gray-200"
+        ) as tabs:
+            tab_register = ui.tab("위탁 계약 등록").classes(
+                "flex-1 justify-center text-xs sm:text-sm"
+            )
+            tab_list = ui.tab("위탁 계약 목록").classes(
+                "flex-1 justify-center text-xs sm:text-sm"
+            )
+            tab_year = ui.tab("명단 조회").classes(
+                "flex-1 justify-center text-xs sm:text-sm"
+            )
+            tab_import = ui.tab("엑셀 일괄 등록").classes(
+                "flex-1 justify-center text-xs sm:text-sm"
+            )
+            tab_report = ui.tab("연간 통계").classes(
+                "flex-1 justify-center text-xs sm:text-sm"
+            )
 
         with ui.tab_panels(tabs, value=tab_register).classes("w-full p-1 sm:p-4"):
             with ui.tab_panel(tab_register):
@@ -39,6 +56,8 @@ def entrustment_page() -> None:
                 _build_year_list_section()
             with ui.tab_panel(tab_import):
                 _build_import_section()
+            with ui.tab_panel(tab_report):
+                _build_report_section()
 
 
 def _build_register_section() -> None:
@@ -524,3 +543,283 @@ def _open_import_detail_dialog(result) -> None:
         with ui.row().classes("w-full justify-end mt-3"):
             ui.button("닫기", on_click=dialog.close).props("flat")
     dialog.open()
+
+
+def _build_report_section() -> None:
+    """연간·전체 기간 통계 미리보기 (1단계: UI + 스텁 집계)."""
+    with ui.column().classes("w-full max-w-5xl gap-4"):
+        ui.label(
+            "집계 범위를 선택한 뒤 미리보기하거나 엑셀로 저장하세요. "
+            "금액은 원 단위(천 단위 콤마)입니다."
+        ).classes("text-xs text-gray-400")
+
+        with ui.card().classes(CARD_CLASSES + " p-4 gap-3 no-print"):
+            ui.label("집계 조건").classes("text-sm font-medium text-gray-700")
+            scope_toggle = ui.toggle(
+                {"year": "사업연도별", "all": "전체 기간"},
+                value="year",
+            ).props("dense unelevated")
+
+            with ui.row().classes("w-full gap-3 items-end flex-wrap"):
+                year_input = ui.number(
+                    label="사업연도",
+                    value=date.today().year,
+                    format="%.0f",
+                ).classes("w-36")
+                preview_btn = ui.button("미리보기", icon="preview").props(
+                    "color=primary"
+                )
+                export_btn = ui.button(
+                    "엑셀 다운로드", icon="download"
+                ).props("outline color=primary")
+
+            def _sync_year_visibility() -> None:
+                year_input.set_visibility(scope_toggle.value == "year")
+
+            scope_toggle.on_value_change(_sync_year_visibility)
+            _sync_year_visibility()
+
+        result = ui.column().classes("w-full gap-3")
+
+        def render_idle(message: str) -> None:
+            result.clear()
+            with result:
+                empty_state(message, icon="analytics")
+
+        def render_preview(preview: ReportPreview) -> None:
+            result.clear()
+            scope_tag = (
+                "전체 기간"
+                if preview.scope == "all"
+                else f"사업연도 {preview.application_year}"
+            )
+            layout_tag = (
+                "경주 성과 중심"
+                if preview.layout == "racing"
+                else "위탁 상태 중심"
+            )
+
+            with result:
+                # —— p.1 style: title + KPI ——
+                with ui.card().classes(CARD_CLASSES + " p-5 gap-3"):
+                    with ui.row().classes(
+                        "w-full items-start justify-between gap-2 flex-wrap"
+                    ):
+                        ui.label("요약").classes(
+                            "text-xs tracking-wide text-gray-400 uppercase"
+                        )
+                        if preview.is_stub:
+                            ui.badge("예시 데이터").props(
+                                "color=grey-7 outline"
+                            )
+
+                    ui.label("제주목장 · 위탁 통계 보고").classes(
+                        "text-xs text-gray-500"
+                    )
+                    ui.label(preview.title).classes(
+                        "text-xl font-medium text-gray-900"
+                    )
+
+                    with ui.row().classes("w-full gap-2 items-center flex-wrap"):
+                        ui.label(f"모집단: {scope_tag}").classes(
+                            "text-xs text-gray-500"
+                        )
+                        ui.label("·").classes("text-xs text-gray-300")
+                        ui.label(layout_tag).classes("text-xs text-gray-500")
+                        ui.label("·").classes("text-xs text-gray-300")
+                        ui.label(preview.subtitle).classes("text-xs text-gray-400")
+
+                    ui.separator().classes("my-1")
+
+                    ui.label("주요 지표").classes("text-sm font-medium")
+                    ui.label(
+                        "단위: 두수=두, 금액=원(천 단위 콤마), 승률=%"
+                    ).classes("text-xs text-gray-400 -mt-1")
+
+                    with ui.grid(columns=4).classes("w-full gap-2"):
+                        for kpi in preview.kpis:
+                            with ui.column().classes(
+                                "border border-gray-200 bg-gray-50/50 "
+                                "rounded-sm p-3 gap-0.5"
+                            ):
+                                ui.label(kpi.value).classes(
+                                    "text-xl font-medium text-gray-900 "
+                                    "leading-none"
+                                )
+                                label = kpi.label
+                                if kpi.unit:
+                                    label = f"{kpi.label} ({kpi.unit})"
+                                ui.label(label).classes(
+                                    "text-xs text-gray-500 mt-1"
+                                )
+
+                    with ui.column().classes(
+                        "w-full gap-1 pt-2 border-t border-gray-100"
+                    ):
+                        ui.label("집계 기준").classes(
+                            "text-xs font-medium text-gray-600"
+                        )
+                        for note in preview.notes:
+                            ui.label(f"· {note}").classes(
+                                "text-xs text-gray-400 leading-snug"
+                            )
+
+                # —— applicant breakdown ——
+                with ui.card().classes(CARD_CLASSES + " p-5 gap-2"):
+                    section_title = (
+                        "신청인별 경주 성과"
+                        if preview.layout == "racing"
+                        else "신청인별 위탁 집계"
+                    )
+                    ui.label(section_title).classes("text-sm font-medium")
+                    if preview.layout == "racing":
+                        ui.label(
+                            "출전·1착·상금은 해당 연도 출주에 한정하지 않고 "
+                            "작성 시점 통산 성적(career_summary) 합산 기준입니다."
+                        ).classes("text-xs text-gray-400 mb-1")
+                    else:
+                        ui.label(
+                            "두수·위탁중·종료·위탁비·낙찰 현황입니다."
+                        ).classes("text-xs text-gray-400 mb-1")
+
+                    if not preview.applicant_rows:
+                        empty_state("신청인 집계가 없습니다", icon="info")
+                    else:
+                        columns = [
+                            {
+                                "name": h,
+                                "label": h,
+                                "field": h,
+                                "align": "left" if i == 0 else "right",
+                            }
+                            for i, h in enumerate(preview.applicant_headers)
+                        ]
+                        rows = [r.cells for r in preview.applicant_rows]
+                        ui.table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="신청인",
+                        ).classes("w-full").props("flat dense wrap-cells")
+
+                if preview.win_horse_rows:
+                    with ui.card().classes(CARD_CLASSES + " p-5 gap-2"):
+                        ui.label("1착 기록 말").classes("text-sm font-medium")
+                        ui.label(
+                            "1착 수 내림차순 · 통산 career_summary 기준"
+                        ).classes("text-xs text-gray-400 mb-1")
+                        columns = [
+                            {
+                                "name": "마명",
+                                "label": "마명",
+                                "field": "마명",
+                                "align": "left",
+                            },
+                            {
+                                "name": "신청인",
+                                "label": "신청인",
+                                "field": "신청인",
+                                "align": "left",
+                            },
+                            {
+                                "name": "출전(회)",
+                                "label": "출전(회)",
+                                "field": "출전(회)",
+                                "align": "right",
+                            },
+                            {
+                                "name": "1착(회)",
+                                "label": "1착(회)",
+                                "field": "1착(회)",
+                                "align": "right",
+                            },
+                            {
+                                "name": "상금(원)",
+                                "label": "상금(원)",
+                                "field": "상금(원)",
+                                "align": "right",
+                            },
+                        ]
+                        rows = [
+                            {
+                                "마명": h.name,
+                                "신청인": h.applicant_name,
+                                "출전(회)": h.starts,
+                                "1착(회)": h.wins,
+                                "상금(원)": h.prize_won,
+                            }
+                            for h in preview.win_horse_rows
+                        ]
+                        ui.table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="마명",
+                        ).classes("w-full").props("flat dense")
+
+        async def on_preview() -> None:
+            scope: ReportScope = scope_toggle.value or "year"
+            year: int | None = None
+            if scope == "year":
+                if year_input.value is None:
+                    ui.notify("사업연도를 입력하세요.", type="warning")
+                    return
+                year = int(year_input.value)
+
+            result.clear()
+            with result:
+                with ui.row().classes(
+                    "w-full items-center gap-2 py-8 justify-center"
+                ):
+                    ui.spinner(size="lg")
+                    ui.label("보고서를 구성하는 중...").classes(
+                        "text-gray-500 text-sm"
+                    )
+
+            try:
+                preview = await run.io_bound(
+                    annual_report_service.build_report_preview,
+                    scope,
+                    year,
+                )
+            except ValueError as e:
+                render_idle(str(e))
+                ui.notify(str(e), type="negative")
+                return
+
+            render_preview(preview)
+            if preview.is_stub:
+                ui.notify(
+                    "예시 수치입니다. 다음 단계에서 실제 DB 집계로 바뀝니다.",
+                    type="info",
+                )
+
+        async def on_export() -> None:
+            scope: ReportScope = scope_toggle.value or "year"
+            year: int | None = None
+            if scope == "year":
+                if year_input.value is None:
+                    ui.notify("사업연도를 입력하세요.", type="warning")
+                    return
+                year = int(year_input.value)
+
+            try:
+                excel_bytes = await run.io_bound(
+                    annual_report_service.export_report_excel,
+                    scope,
+                    year,
+                )
+                filename = annual_report_service.report_excel_filename(
+                    scope, year
+                )
+            except ValueError as e:
+                ui.notify(str(e), type="negative")
+                return
+            except Exception as e:
+                ui.notify(f"엑셀 생성 실패: {e}", type="negative")
+                return
+
+            ui.download(excel_bytes, filename=filename)
+            ui.notify("엑셀 다운로드를 시작합니다.", type="positive")
+
+        preview_btn.on_click(on_preview)
+        export_btn.on_click(on_export)
+        render_idle("집계 범위와 연도를 선택한 뒤 미리보기 또는 엑셀 다운로드")
