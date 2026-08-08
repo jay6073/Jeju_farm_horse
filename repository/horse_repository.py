@@ -6,6 +6,7 @@ from __future__ import annotations
 import io
 import os
 from contextlib import contextmanager
+from datetime import date, datetime
 from typing import Any, Iterator, Optional
 
 from psycopg.rows import dict_row
@@ -42,7 +43,12 @@ CREATE TABLE IF NOT EXISTS horses (
     마종           TEXT NOT NULL,
     품종코드       TEXT,
     상태           TEXT NOT NULL DEFAULT '{STATUS_NORMAL}',
-    상태발생일자   DATE
+    상태발생일자   DATE,
+    출생일         DATE,
+    성별           TEXT,
+    부마명         TEXT,
+    모마명         TEXT,
+    profile_scraped_at TIMESTAMPTZ
 );
 """
 
@@ -99,6 +105,23 @@ def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS idx_horses_status_name "
                     "ON horses(상태, 마명);"
                 )
+                # 명단출력용 프로필 캐시 (없으면 추가). scripts/ddl_horses_profile_fields.sql 과 동일.
+                cur.execute(
+                    "ALTER TABLE horses ADD COLUMN IF NOT EXISTS 출생일 DATE;"
+                )
+                cur.execute(
+                    "ALTER TABLE horses ADD COLUMN IF NOT EXISTS 성별 TEXT;"
+                )
+                cur.execute(
+                    "ALTER TABLE horses ADD COLUMN IF NOT EXISTS 부마명 TEXT;"
+                )
+                cur.execute(
+                    "ALTER TABLE horses ADD COLUMN IF NOT EXISTS 모마명 TEXT;"
+                )
+                cur.execute(
+                    "ALTER TABLE horses "
+                    "ADD COLUMN IF NOT EXISTS profile_scraped_at TIMESTAMPTZ;"
+                )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -126,6 +149,9 @@ def _row_to_horse(row: dict) -> Horse:
     db_date = row["상태발생일자"]
     str_date = db_date.strftime("%Y-%m-%d") if db_date else None
 
+    birth = row.get("출생일")
+    scraped_at = row.get("profile_scraped_at")
+
     return Horse(
         id=row["id"],
         마번=row["마번"],
@@ -134,6 +160,11 @@ def _row_to_horse(row: dict) -> Horse:
         품종코드=row["품종코드"],
         상태=row["상태"],
         상태발생일자=str_date,
+        출생일=birth if isinstance(birth, date) else None,
+        성별=row.get("성별"),
+        부마명=row.get("부마명"),
+        모마명=row.get("모마명"),
+        profile_scraped_at=scraped_at if isinstance(scraped_at, datetime) else None,
     )
 
 
@@ -364,6 +395,34 @@ class HorseRepository:
                 cur.execute(
                     "UPDATE horses SET 품종코드 = %s WHERE id = %s",
                     (품종코드, horse_id),
+                )
+                return cur.rowcount
+
+    def update_profile(
+        self,
+        horse_id: int,
+        *,
+        출생일: Optional[date] = None,
+        성별: Optional[str] = None,
+        부마명: Optional[str] = None,
+        모마명: Optional[str] = None,
+        scraped_at: Optional[datetime] = None,
+    ) -> int:
+        """명단출력용 개체 프로필을 캐시한다. profile_scraped_at을 갱신한다."""
+        when = scraped_at or datetime.now().astimezone()
+        with _get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE horses
+                    SET 출생일 = %s,
+                        성별 = %s,
+                        부마명 = %s,
+                        모마명 = %s,
+                        profile_scraped_at = %s
+                    WHERE id = %s
+                    """,
+                    (출생일, 성별, 부마명, 모마명, when, horse_id),
                 )
                 return cur.rowcount
 

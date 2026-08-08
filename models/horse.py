@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 import re
 from typing import Optional
 from shared.horse_number import normalize_horse_number  # noqa: F401
@@ -101,6 +101,12 @@ class Horse:
     상태: str = STATUS_NORMAL
     상태발생일자: Optional[str] = None  # ISO 형식 문자열(YYYY-MM-DD), 정상이면 None
     id: Optional[int] = None
+    # 명단출력용 개체 프로필 캐시 (horsepia 조회 결과를 DB에 보관)
+    출생일: Optional[date] = None
+    성별: Optional[str] = None
+    부마명: Optional[str] = None
+    모마명: Optional[str] = None
+    profile_scraped_at: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         if not self.마명 or not self.마명.strip():
@@ -130,6 +136,11 @@ class Horse:
     def is_active(self) -> bool:
         """오늘 기준 보유 중(=정상)인지 여부. main_page 조회 필터링에 사용."""
         return self.상태 == STATUS_NORMAL
+
+    @property
+    def has_cached_profile(self) -> bool:
+        """명단출력용 출생일·성별·부·모가 DB에 캐시되어 있는지."""
+        return self.profile_scraped_at is not None
 
     @staticmethod
     def today_str() -> str:

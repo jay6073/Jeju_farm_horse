@@ -4,12 +4,12 @@
 명단 컬럼:
 - 공통: 마번, 마명, 출생일, 성별, 부마명, 모마명
 - 위수탁마 추가: 신청인 (entrustment.applicant_name)
-- 일반 마종: horsepia 스크래핑 / 위수탁마: entrustment DB만 (모마명은 '-')
+- 일반 마종: horses 프로필 캐시 우선 / 없으면 horsepia 1회 조회 후 DB 저장
+- 위수탁마: entrustment DB만 (모마명은 '-')
 """
 from __future__ import annotations
 
-import random
-import time
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional
@@ -17,7 +17,7 @@ from typing import Optional
 from models.horse import HORSE_SPECIES, Horse
 from repository.horse_repository import HorseRepository
 from services import entrustment_service, scraping_service
-from services.scraping_service import REQUEST_DELAY_RANGE, ScrapingError
+from services.scraping_service import ScrapingError
 
 PRINT_COLUMNS: tuple[str, ...] = (
     "마번",
@@ -41,6 +41,7 @@ PRINT_COLUMNS_ENTRUSTMENT: tuple[str, ...] = (
 
 SPECIES_ENTRUSTMENT = "위수탁마"
 _EMPTY = "-"
+_BIRTH_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
 
 @dataclass
@@ -75,6 +76,28 @@ def _fmt_date(value) -> str:
     return str(value)
 
 
+def _clean_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned or cleaned == _EMPTY:
+        return None
+    return cleaned
+
+
+def _parse_birth_date(value: Optional[str]) -> Optional[date]:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    match = _BIRTH_DATE_RE.match(cleaned)
+    if not match:
+        return None
+    try:
+        return date.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+
+
 def _blank_row(horse: Horse, error: Optional[str] = None) -> PrintRow:
     return PrintRow(
         마번=horse.마번 or _EMPTY,
@@ -88,14 +111,26 @@ def _blank_row(horse: Horse, error: Optional[str] = None) -> PrintRow:
     )
 
 
+def _row_from_cached_profile(horse: Horse) -> PrintRow:
+    return PrintRow(
+        마번=horse.마번 or _EMPTY,
+        마명=horse.마명,
+        출생일=_fmt_date(horse.출생일),
+        성별=_clean_text(horse.성별) or _EMPTY,
+        부마명=_clean_text(horse.부마명) or _EMPTY,
+        모마명=_clean_text(horse.모마명) or _EMPTY,
+        horse_id=horse.id,
+    )
+
+
 def _row_from_basic_info(horse: Horse, basic_info: dict[str, str]) -> PrintRow:
     return PrintRow(
         마번=horse.마번 or _EMPTY,
         마명=horse.마명,
-        출생일=basic_info.get("출생일") or _EMPTY,
-        성별=basic_info.get("성별") or _EMPTY,
-        부마명=basic_info.get("부마명") or _EMPTY,
-        모마명=basic_info.get("모마명") or _EMPTY,
+        출생일=_fmt_date(_parse_birth_date(basic_info.get("출생일"))),
+        성별=_clean_text(basic_info.get("성별")) or _EMPTY,
+        부마명=_clean_text(basic_info.get("부마명")) or _EMPTY,
+        모마명=_clean_text(basic_info.get("모마명")) or _EMPTY,
         horse_id=horse.id,
     )
 
@@ -106,6 +141,22 @@ def _fetch_basic_info(horse: Horse, repo: HorseRepository) -> dict[str, str]:
     else:
         data = scraping_service.get_horse_detail_auto(horse, repo, use_cache=True)
     return scraping_service.extract_basic_info(data, hrs_gb_cd=horse.품종코드 or "")
+
+
+def _cache_profile_from_basic_info(
+    horse: Horse,
+    basic_info: dict[str, str],
+    repo: HorseRepository,
+) -> None:
+    if horse.id is None:
+        return
+    repo.update_profile(
+        horse.id,
+        출생일=_parse_birth_date(basic_info.get("출생일")),
+        성별=_clean_text(basic_info.get("성별")),
+        부마명=_clean_text(basic_info.get("부마명")),
+        모마명=_clean_text(basic_info.get("모마명")),
+    )
 
 
 def build_entrustment_print_rows(application_year: int) -> list[PrintRow]:
@@ -139,7 +190,9 @@ def build_owned_species_print_rows(
 ) -> list[PrintRow]:
     """
     위수탁마가 아닌 마종의 상태=정상 보유마 명단.
-    출생일·성별·부·모는 horsepia에서 조회한다.
+
+    출생일·성별·부·모는 horses 프로필 캐시를 우선 사용하고,
+    캐시가 없는 말만 horsepia에서 조회한 뒤 DB에 저장한다.
     """
     if species not in HORSE_SPECIES or species == SPECIES_ENTRUSTMENT:
         raise ValueError(f"일반 마종만 조회할 수 있습니다: {species!r}")
@@ -148,16 +201,18 @@ def build_owned_species_print_rows(
     horses = repository.get_active_names_by_species(species)
     rows: list[PrintRow] = []
 
-    for i, horse in enumerate(horses):
+    for horse in horses:
         if not horse.마번:
             rows.append(_blank_row(horse, error="마번 없음"))
             continue
 
-        if i > 0:
-            time.sleep(random.uniform(*REQUEST_DELAY_RANGE))
+        if horse.has_cached_profile:
+            rows.append(_row_from_cached_profile(horse))
+            continue
 
         try:
             basic_info = _fetch_basic_info(horse, repository)
+            _cache_profile_from_basic_info(horse, basic_info, repository)
             rows.append(_row_from_basic_info(horse, basic_info))
         except ScrapingError as e:
             rows.append(_blank_row(horse, error=str(e)))
@@ -173,7 +228,7 @@ def build_species_print_rows(
     """
     마종에 따라 명단을 만든다.
     - 위수탁마: application_year 필수, entrustment DB만 사용
-    - 그 외: 상태=정상 + horsepia 스크래핑
+    - 그 외: 상태=정상 + 프로필 캐시(미스 시 horsepia)
     """
     if species not in HORSE_SPECIES:
         raise ValueError(f"유효하지 않은 마종입니다: {species!r}")

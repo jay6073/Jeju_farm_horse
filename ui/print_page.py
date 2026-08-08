@@ -2,7 +2,7 @@
 마종별 보유마 명단 미리보기·인쇄 화면.
 
 컬럼: 마번, 마명, 출생일, 성별, 부마명, 모마명
-- 일반 마종: 상태=정상 + horsepia 조회
+- 일반 마종: 상태=정상 + horses 프로필 캐시 (미스만 horsepia 1회 후 DB 저장)
 - 위수탁마: 사업연도 + entrustment DB (스크래핑 없음, 모마명='-')
 """
 from __future__ import annotations
@@ -25,27 +25,68 @@ _repo = HorseRepository()
 
 _PRINT_STYLE = """
 @media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
   header, .q-drawer, .q-drawer__backdrop, .no-print {
     display: none !important;
   }
-  body, .q-page, .nicegui-content {
+
+  /* 화면용 좌측 drawer 자리·페이지 패딩이 인쇄에 남지 않도록 제거 */
+  html, body,
+  .q-layout, .q-page-container, .q-page,
+  .nicegui-content {
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    left: 0 !important;
   }
+  .q-page-container {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+  }
+
   .print-area {
     box-shadow: none !important;
     border: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
-  .print-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11pt;
+
+  /* max-w-5xl 등 화면용 폭 제한이 인쇄에 영향을 주지 않게 */
+  .max-w-5xl {
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  /* 인쇄: 내용 길이에 따라 열 너비 자동, 한 줄 표시 */
+  .print-table,
+  .print-table .q-table {
+    width: 100% !important;
+    table-layout: auto !important;
+    border-collapse: collapse !important;
+    font-size: 10pt;
+  }
+  .print-table .q-table__top,
+  .print-table .q-table__bottom {
+    display: none !important;
   }
   .print-table th,
-  .print-table td {
-    border: 1px solid #333;
-    padding: 4px 8px;
-    text-align: left;
+  .print-table td,
+  .print-table .q-table th,
+  .print-table .q-table td {
+    border: 1px solid #000 !important;
+    padding: 3px 6px !important;
+    text-align: left !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
   }
 }
 """
@@ -77,7 +118,9 @@ def print_page() -> None:
 
             ui.label(
                 "일반 마종은 상태=정상만 포함하며, "
-                "출생일·성별·부마명·모마명은 horsepia에서 조회합니다. "
+                "출생일·성별·부마명·모마명은 DB 캐시를 우선 사용합니다. "
+                "캐시가 없는 말만 horsepia에서 1회 조회 후 저장하므로 "
+                "두 번째 미리보기부터는 빠릅니다. "
                 "위수탁마는 사업연도 선택 후 DB에서 바로 불러오며 "
                 "신청인 컬럼이 추가됩니다 (모마명은 DB에 없어 '-' 표시)."
             ).classes("text-xs text-gray-400 no-print")
@@ -109,7 +152,10 @@ def print_page() -> None:
                         if species == SPECIES_ENTRUSTMENT:
                             msg = f"{species} 명단을 DB에서 불러오는 중..."
                         else:
-                            msg = f"{species} 명단·마적을 불러오는 중..."
+                            msg = (
+                                f"{species} 명단을 불러오는 중 "
+                                "(캐시 없는 말만 horsepia 조회)..."
+                            )
                         ui.label(msg).classes("text-gray-500 text-sm")
 
             def render_table(
