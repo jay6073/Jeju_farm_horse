@@ -26,10 +26,10 @@ _STATUS_FILTER_OPTIONS = ["전체", *HORSE_STATUS_OPTIONS]
 def entrustment_page() -> None:
     content = render_nav("/entrustment")
     with content:
-        ui.label("위탁관리").classes("text-lg sm:text-xl font-medium")
+        ui.label("위탁관리").classes("text-lg sm:text-xl font-medium no-print")
 
         with ui.tabs().props("dense").classes(
-            "w-full border-b border-gray-200"
+            "w-full border-b border-gray-200 no-print"
         ) as tabs:
             tab_register = ui.tab("위탁 계약 등록").classes(
                 "flex-1 justify-center text-xs sm:text-sm"
@@ -545,13 +545,63 @@ def _open_import_detail_dialog(result) -> None:
     dialog.open()
 
 
+_REPORT_PRINT_STYLE = """
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  header, .q-drawer, .q-drawer__backdrop, .no-print {
+    display: none !important;
+  }
+
+  html, body,
+  .q-layout, .q-page-container, .q-page,
+  .nicegui-content, .q-tab-panels, .q-tab-panel {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    left: 0 !important;
+    overflow: visible !important;
+  }
+  .q-page-container {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+  }
+
+  .print-area {
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .max-w-5xl {
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  .print-area .q-table__top,
+  .print-area .q-table__bottom {
+    display: none !important;
+  }
+}
+"""
+
+
 def _build_report_section() -> None:
     """연간·전체 기간 통계 미리보기 (1단계: UI + 스텁 집계)."""
+    ui.add_css(_REPORT_PRINT_STYLE)
     with ui.column().classes("w-full max-w-5xl gap-4"):
         ui.label(
             "집계 범위를 선택한 뒤 미리보기하거나 엑셀로 저장하세요. "
+            "화면 그대로 받으려면 미리보기 후 인쇄에서 PDF로 저장하면 됩니다. "
             "금액은 원 단위(천 단위 콤마)입니다."
-        ).classes("text-xs text-gray-400")
+        ).classes("text-xs text-gray-400 no-print")
 
         with ui.card().classes(CARD_CLASSES + " p-4 gap-3 no-print"):
             ui.label("집계 조건").classes("text-sm font-medium text-gray-700")
@@ -572,6 +622,10 @@ def _build_report_section() -> None:
                 export_btn = ui.button(
                     "엑셀 다운로드", icon="download"
                 ).props("outline color=primary")
+                print_btn = ui.button("인쇄", icon="print").props(
+                    "outline color=primary"
+                )
+                print_btn.disable()
 
             def _sync_year_visibility() -> None:
                 year_input.set_visibility(scope_toggle.value == "year")
@@ -579,10 +633,11 @@ def _build_report_section() -> None:
             scope_toggle.on_value_change(_sync_year_visibility)
             _sync_year_visibility()
 
-        result = ui.column().classes("w-full gap-3")
+        result = ui.column().classes("w-full gap-3 print-area")
 
         def render_idle(message: str) -> None:
             result.clear()
+            print_btn.disable()
             with result:
                 empty_state(message, icon="analytics")
 
@@ -765,6 +820,7 @@ def _build_report_section() -> None:
                 year = int(year_input.value)
 
             result.clear()
+            print_btn.disable()
             with result:
                 with ui.row().classes(
                     "w-full items-center gap-2 py-8 justify-center"
@@ -786,6 +842,7 @@ def _build_report_section() -> None:
                 return
 
             render_preview(preview)
+            print_btn.enable()
             if preview.is_stub:
                 ui.notify(
                     "예시 수치입니다. 다음 단계에서 실제 DB 집계로 바뀝니다.",
@@ -820,6 +877,10 @@ def _build_report_section() -> None:
             ui.download(excel_bytes, filename=filename)
             ui.notify("엑셀 다운로드를 시작합니다.", type="positive")
 
+        def on_print() -> None:
+            ui.run_javascript("window.print()")
+
         preview_btn.on_click(on_preview)
         export_btn.on_click(on_export)
-        render_idle("집계 범위와 연도를 선택한 뒤 미리보기 또는 엑셀 다운로드")
+        print_btn.on_click(on_print)
+        render_idle("집계 범위와 연도를 선택한 뒤 미리보기, 엑셀 다운로드 또는 인쇄")

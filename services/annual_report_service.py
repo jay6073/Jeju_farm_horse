@@ -18,6 +18,7 @@ from openpyxl.utils import get_column_letter
 from config.constants import STATUS_ENTRUSTED, STATUS_ENDED
 from db import repository
 from services import entrustment_service
+from shared.applicant_name import normalize_applicant_name
 
 ReportScope = Literal["year", "all"]
 ReportLayout = Literal["status", "racing"]
@@ -110,8 +111,7 @@ def _career_map() -> dict[str, dict[str, Any]]:
 
 
 def _applicant_key(name: Optional[str]) -> str:
-    cleaned = (name or "").strip()
-    return cleaned if cleaned else "(신청인 미상)"
+    return normalize_applicant_name(name)
 
 
 def _to_int(value: Any) -> int:

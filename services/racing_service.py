@@ -97,42 +97,68 @@ def refresh_all_racehorses(
         if progress_callback:
             progress_callback(i + 1, len(targets), horse_id)
 
-        try:
-            scraped = racing_scraper.fetch_race_data(horse_id, session=session)
-        except ScrapingError as e:
-            print(f"  실패: {e}")
-            result.failed_count += 1
-            result.failed_details.append(f"마번 {horse_id}: {e}")
-            continue
-
-        repository.delete_race_records_by_horse(horse_id)
-        for record in scraped.race_records:
-            repository.insert_race_record(record)
-
-        if scraped.career_summary:
-            summary = dict(scraped.career_summary)
-            summary["last_scraped_at"] = datetime.now()
-            repository.upsert_career_summary(summary)
-            result.success_count += 1
-        else:
-            result.no_race_history_count += 1
-            repository.upsert_career_summary(
-                {
-                    "horse_id": horse_id,
-                    "total_starts": 0,
-                    "total_wins": 0,
-                    "win_rate": 0.0,
-                    "total_prize_money": 0,
-                    "rating": None,
-                    "data_source": "scraping",
-                    "last_scraped_at": datetime.now(),
-                }
-            )
+        _refresh_one_horse(horse_id, session, result)
 
         if i < len(targets) - 1:
             time.sleep(delay_seconds)
 
     return result
+
+
+def refresh_racehorses_by_ids(
+    horse_ids: list[str],
+    delay_seconds: float = REQUEST_DELAY_SECONDS,
+    progress_callback=None,
+) -> RefreshResult:
+    """지정한 마번만 7일 주기와 무관하게 다시 수집한다."""
+    result = RefreshResult(total_targets=len(horse_ids))
+    session = racing_scraper.create_session()
+
+    for i, horse_id in enumerate(horse_ids):
+        print(f"[{i+1}/{len(horse_ids)}] 마번 {horse_id} 처리 중...")
+        if progress_callback:
+            progress_callback(i + 1, len(horse_ids), horse_id)
+        _refresh_one_horse(horse_id, session, result)
+        if i < len(horse_ids) - 1:
+            time.sleep(delay_seconds)
+
+    return result
+
+
+def _refresh_one_horse(horse_id: str, session, result: RefreshResult) -> None:
+    try:
+        scraped = racing_scraper.fetch_race_data(horse_id, session=session)
+    except ScrapingError as e:
+        print(f"  실패: {e}")
+        result.failed_count += 1
+        result.failed_details.append(f"마번 {horse_id}: {e}")
+        return
+
+    repository.delete_race_records_by_horse(horse_id)
+    for record in scraped.race_records:
+        repository.insert_race_record(record)
+
+    if scraped.career_summary:
+        summary = dict(scraped.career_summary)
+        summary["last_scraped_at"] = datetime.now()
+        repository.upsert_career_summary(summary)
+        result.success_count += 1
+        print(f"  성공: 전적 {len(scraped.race_records)}행 / 통산 {summary.get('total_starts')}전")
+    else:
+        result.no_race_history_count += 1
+        repository.upsert_career_summary(
+            {
+                "horse_id": horse_id,
+                "total_starts": 0,
+                "total_wins": 0,
+                "win_rate": 0.0,
+                "total_prize_money": 0,
+                "rating": None,
+                "data_source": "scraping",
+                "last_scraped_at": datetime.now(),
+            }
+        )
+        print("  경주이력 없음")
 
 
 def get_race_records(horse_id: str) -> list[dict]:

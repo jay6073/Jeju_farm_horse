@@ -31,6 +31,7 @@ from db import repository
 from models.schemas import Horse
 from models.horse import Horse as AHorse, STATUS_NORMAL
 from repository.horse_repository import _get_connection as _a_get_connection, HorseRepository
+from shared.applicant_name import normalize_applicant_name
 from shared.horse_number import normalize_horse_number
 
 _a_horse_repo = HorseRepository()
@@ -377,6 +378,9 @@ def get_statistics_by_applicant() -> pd.DataFrame:
         )
 
     df = pd.DataFrame(rows)
+    df["applicant_name"] = df["applicant_name"].map(
+        lambda v: normalize_applicant_name(None if pd.isna(v) else v)
+    )
     all_summaries = repository.list_all_career_summaries_with_horse()
     summary_map = {s["horse_id"]: s for s in all_summaries}
     df["_unverified_race"] = df.apply(
