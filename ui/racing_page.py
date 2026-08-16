@@ -128,6 +128,9 @@ async def racing_page() -> None:
                                 ui.label(f"{s.get('total_prize_money') or 0:,}원").classes(
                                     "text-sm text-amber-700 font-medium"
                                 )
+                            ui.label(
+                                f"경주마명 {s.get('registered_name') or '-'}"
+                            ).classes("text-xs text-gray-500 mt-1")
                             with ui.row().classes("w-full items-center gap-3 text-xs text-gray-500 mt-1"):
                                 ui.label(f"출주 {s.get('total_starts') or 0}")
                                 ui.label(f"1위 {s.get('total_wins') or 0}")
@@ -147,13 +150,14 @@ async def racing_page() -> None:
 
                 # ── PC/태블릿 전용: 전체 표 (가로 스크롤, 전체 컬럼) ──
                 with ui.card().classes(CARD_CLASSES + " p-4 overflow-x-auto desktop-table-card"):
-                    with ui.column().classes("min-w-[640px]"):
+                    with ui.column().classes("min-w-[760px]"):
                         with ui.row().classes(
                                 "w-full text-xs text-gray-400 font-medium bg-gray-50 rounded-t-md "
                                 "px-2 py-1 -mt-4 -mx-4 mb-2"
                         ):
                             ui.label("마번").classes("w-28")
                             ui.label("마명").classes("w-28")
+                            ui.label("경주마명").classes("w-28")
                             ui.label("위탁자").classes("flex-1")
                             ui.label("출주").classes("w-14 text-right")
                             ui.label("1위").classes("w-14 text-right")
@@ -168,6 +172,7 @@ async def racing_page() -> None:
                             ):
                                 ui.label(s.get("horse_id") or "-").classes("w-28 text-gray-500")
                                 ui.label(s.get("horse_name") or "-").classes("w-28")
+                                ui.label(s.get("registered_name") or "-").classes("w-28")
                                 ui.label(s.get("applicant_name") or "-").classes("flex-1 text-gray-500")
                                 ui.label(str(s.get("total_starts") or 0)).classes("w-14 text-right")
                                 ui.label(str(s.get("total_wins") or 0)).classes("w-14 text-right")
@@ -182,6 +187,7 @@ async def racing_page() -> None:
                                 "border-t-2 border-gray-300 bg-gray-50 rounded-b-md"
                         ):
                             ui.label(f"총 {total_horses}두").classes("w-28")
+                            ui.label("").classes("w-28")
                             ui.label("").classes("w-28")
                             ui.label("").classes("flex-1")
                             ui.label(str(total_starts_sum)).classes("w-14 text-right")
@@ -214,6 +220,8 @@ async def racing_page() -> None:
             with detail_container:
                 if summary:
                     with ui.card().classes(CARD_CLASSES + " p-4 mb-3"):
+                        registered = summary.get("registered_name") or "-"
+                        ui.label(f"경주마명 {registered}").classes("text-sm font-medium")
                         ui.label(f"{summary.get('total_starts', 0)}전 "
                                  f"{summary.get('total_wins', 0)}승 · "
                                  f"승률 {summary.get('win_rate', 0)}% · "

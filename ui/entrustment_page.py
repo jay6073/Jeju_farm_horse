@@ -770,6 +770,12 @@ def _build_report_section() -> None:
                                 "align": "left",
                             },
                             {
+                                "name": "경주마명",
+                                "label": "경주마명",
+                                "field": "경주마명",
+                                "align": "left",
+                            },
+                            {
                                 "name": "신청인",
                                 "label": "신청인",
                                 "field": "신청인",
@@ -797,6 +803,7 @@ def _build_report_section() -> None:
                         rows = [
                             {
                                 "마명": h.name,
+                                "경주마명": h.registered_name,
                                 "신청인": h.applicant_name,
                                 "출전(회)": h.starts,
                                 "1착(회)": h.wins,

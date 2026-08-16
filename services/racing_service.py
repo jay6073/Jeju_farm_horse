@@ -154,6 +154,7 @@ def _refresh_one_horse(horse_id: str, session, result: RefreshResult) -> None:
                 "win_rate": 0.0,
                 "total_prize_money": 0,
                 "rating": None,
+                "registered_name": None,
                 "data_source": "scraping",
                 "last_scraped_at": datetime.now(),
             }
@@ -209,6 +210,7 @@ from openpyxl.utils import get_column_letter
 _EXPORT_COLUMNS = [
     ("마번", "horse_id"),
     ("마명", "horse_name"),
+    ("경주마명", "registered_name"),
     ("위탁자", "applicant_name"),
     ("출주", "total_starts"),
     ("1위", "total_wins"),

@@ -107,5 +107,8 @@ class CareerSummary(BaseModel):
     win_rate: float = 0.0
     total_prize_money: int = 0
     rating: Optional[str] = Field(None, description="통산 레이팅, RaceResult.rating")
+    registered_name: Optional[str] = Field(
+        None, description="호스피아 등록 경주마명, RaceResult.hrNm"
+    )
     data_source: str = Field("scraping", description="데이터 출처")
     last_scraped_at: Optional[str] = Field(None, description="마지막 스크래핑 시각 ISO 문자열")

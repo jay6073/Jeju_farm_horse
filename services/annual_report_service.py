@@ -40,6 +40,7 @@ class ApplicantRow:
 @dataclass
 class HorseWinRow:
     name: str
+    registered_name: str
     applicant_name: str
     starts: str
     wins: str
@@ -360,6 +361,7 @@ def _build_racing(
                 p,
                 HorseWinRow(
                     name=h.name or h.horse_id or "-",
+                    registered_name=cs.get("registered_name") or "-",
                     applicant_name=_applicant_key(h.applicant_name),
                     starts=_fmt_num(s),
                     wins=_fmt_num(w),
@@ -472,11 +474,18 @@ def _preview_to_excel_bytes(preview: ReportPreview) -> bytes:
 
     if preview.win_horse_rows:
         ws.append(["1착 기록 말"])
-        win_headers = ["마명", "신청인", "출전(회)", "1착(회)", "상금(원)"]
+        win_headers = ["마명", "경주마명", "신청인", "출전(회)", "1착(회)", "상금(원)"]
         ws.append(win_headers)
         for h in preview.win_horse_rows:
             ws.append(
-                [h.name, h.applicant_name, h.starts, h.wins, h.prize_won]
+                [
+                    h.name,
+                    h.registered_name,
+                    h.applicant_name,
+                    h.starts,
+                    h.wins,
+                    h.prize_won,
+                ]
             )
         ws.append([])
 

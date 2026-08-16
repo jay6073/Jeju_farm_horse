@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS career_summary (
     win_rate            REAL NOT NULL DEFAULT 0.0,
     total_prize_money   INTEGER NOT NULL DEFAULT 0,
     rating              TEXT,
+    registered_name     TEXT,
     data_source         TEXT NOT NULL DEFAULT 'scraping',
     last_scraped_at     TIMESTAMP,
     FOREIGN KEY (horse_id) REFERENCES horses(마번) ON DELETE CASCADE

@@ -322,6 +322,7 @@ def _map_career_summary(horse_id: str, raw: dict[str, Any]) -> dict[str, Any]:
     """
     RaceResult(통산 요약, 말 1마리당 1건)을 CareerSummary 필드로 매핑.
     rating은 문자열에 공백 패딩이 있어 trim 처리.
+    registered_name은 호스피아 등록 경주마명(hrNm). horses.마명(위탁명)과 별개다.
     """
     rating = raw.get("rating")
     rating = rating.strip() if isinstance(rating, str) else rating
@@ -338,6 +339,7 @@ def _map_career_summary(horse_id: str, raw: dict[str, Any]) -> dict[str, Any]:
         "win_rate": win_rate,
         "total_prize_money": total_prize_money,
         "rating": rating,
+        "registered_name": _clean(raw.get("hrNm")),
         "data_source": "scraping",
     }
 
