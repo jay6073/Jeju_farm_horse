@@ -10,16 +10,18 @@ import {
   insertEntrustment,
   insertHorse,
   listAuctionsForHorse,
+  listCareers,
   listEntrustment,
   listHorses,
   updateEntrustment,
   updateHorseStatus,
 } from "../lib/api";
+import { buildAnnualReport } from "../lib/annualReport";
 import { HORSE_STATUS_OPTIONS, STATUS_ENDED, STATUS_ENTRUSTED } from "../lib/constants";
 import { downloadWorkbook } from "../lib/excel";
-import { classifyAuction, fmtDate, fmtFee, fmtText, hammerPriceFromResult } from "../lib/format";
+import { fmtDate, fmtFee, fmtText } from "../lib/format";
 import { normalizeApplicantName, normalizeHorseNumber } from "../lib/horseNumber";
-import type { EntrustmentRow, HorseRow } from "../lib/types";
+import type { CareerRow, EntrustmentRow, HorseRow } from "../lib/types";
 import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { useNotify } from "../components/Toast";
@@ -395,62 +397,127 @@ function SearchSection() {
 }
 
 function ReportSection() {
+  const notify = useNotify();
   const [horses, setHorses] = useState<HorseRow[]>([]);
   const [rows, setRows] = useState<EntrustmentRow[]>([]);
+  const [careers, setCareers] = useState<CareerRow[]>([]);
   const [scope, setScope] = useState<"year" | "all">("year");
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    Promise.all([listHorses(), listEntrustment()]).then(([h, e]) => {
+    Promise.all([listHorses(), listEntrustment(), listCareers()]).then(([h, e, c]) => {
       setHorses(h);
       setRows(e);
+      setCareers(c);
     });
   }, []);
 
-  const subset = useMemo(() => {
-    if (scope === "all") return rows;
-    return rows.filter((r) => r.application_year === Number(year));
-  }, [rows, scope, year]);
+  const preview = useMemo(
+    () => buildAnnualReport(scope, Number(year), rows, horses, careers),
+    [scope, year, rows, horses, careers],
+  );
 
-  const kpis = useMemo(() => {
-    const entrusted = subset.filter((r) => r.status === STATUS_ENTRUSTED).length;
-    const ended = subset.filter((r) => r.status === STATUS_ENDED).length;
-    const fee = subset.reduce((s, r) => s + (r.entrustment_fee || 0), 0);
-    const won = subset.filter((r) => classifyAuction(r.first_result, r.final_result) === "낙찰").length;
-    const price = subset.reduce((s, r) => s + hammerPriceFromResult(r.first_result, r.final_result), 0);
-    return { total: subset.length, entrusted, ended, fee, won, price };
-  }, [subset]);
+  function onExcel() {
+    if (!ready) return;
+    downloadWorkbook(
+      preview.applicantRows,
+      preview.applicantTitle.slice(0, 31),
+      scope === "all" ? "위탁통계_전체기간.xlsx" : `위탁통계_${year}.xlsx`,
+    );
+    notify("엑셀을 저장했습니다.");
+  }
 
   return (
     <div className="flex max-w-5xl flex-col gap-4">
+      <p className="no-print text-xs text-gray-400">
+        집계 범위를 선택한 뒤 미리보기하거나 엑셀로 저장하세요. 금액은 원 단위(천 단위 콤마)입니다.
+      </p>
       <div className="no-print flex flex-wrap items-end gap-3">
-        <select className="rounded-md border border-gray-200 px-3 py-2" value={scope} onChange={(e) => setScope(e.target.value as "year" | "all")}>
+        <select className="rounded-md border border-gray-200 px-3 py-2" value={scope} onChange={(e) => { setScope(e.target.value as "year" | "all"); setReady(false); }}>
           <option value="year">사업연도별</option>
           <option value="all">전체 기간</option>
         </select>
         {scope === "year" ? (
-          <input className="w-36 rounded-md border border-gray-200 px-3 py-2" type="number" value={year} onChange={(e) => setYear(e.target.value)} />
+          <input className="w-36 rounded-md border border-gray-200 px-3 py-2" type="number" value={year} onChange={(e) => { setYear(e.target.value); setReady(false); }} />
         ) : null}
         <button type="button" className="rounded-md bg-primary px-3 py-2 text-sm text-white" onClick={() => setReady(true)}>미리보기</button>
+        <button type="button" className="rounded-md border border-primary px-3 py-2 text-sm text-primary" disabled={!ready} onClick={onExcel}>엑셀 다운로드</button>
         <button type="button" className="rounded-md border border-primary px-3 py-2 text-sm text-primary" disabled={!ready} onClick={() => window.print()}>인쇄</button>
       </div>
       {!ready ? (
         <EmptyState message="집계 범위와 연도를 선택한 뒤 미리보기" />
       ) : (
-        <Card className="print-area">
-          <div className="text-xs text-gray-500">제주목장 · 위탁 통계 보고</div>
-          <div className="text-xl font-medium">{scope === "all" ? "전체 기간" : `${year}년`} 요약</div>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <Kpi label="위탁 두수" value={`${kpis.total}두`} />
-            <Kpi label="위탁중" value={`${kpis.entrusted}두`} />
-            <Kpi label="위탁종료" value={`${kpis.ended}두`} />
-            <Kpi label="위탁비 합계" value={`${kpis.fee.toLocaleString("ko-KR")}원`} />
-            <Kpi label="낙찰 두수" value={`${kpis.won}두`} />
-            <Kpi label="낙찰가 합계" value={`${kpis.price.toLocaleString("ko-KR")}원`} />
-          </div>
-          <p className="mt-3 text-xs text-gray-400">보유마 {horses.length}두 기준 위탁 계약만 집계합니다.</p>
-        </Card>
+        <>
+          <Card className="print-area">
+            <div className="text-xs text-gray-500">제주목장 · 위탁 통계 보고</div>
+            <div className="text-xl font-medium">{preview.title}</div>
+            <div className="mt-1 text-xs text-gray-400">{preview.subtitle}</div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {preview.kpis.map((kpi) => (
+                <Kpi key={kpi.label} label={kpi.unit ? `${kpi.label} (${kpi.unit})` : kpi.label} value={kpi.value} />
+              ))}
+            </div>
+            <ul className="mt-3 list-disc pl-4 text-xs text-gray-400">
+              {preview.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          </Card>
+          <Card className="print-area overflow-x-auto">
+            <div className="text-sm font-medium">{preview.applicantTitle}</div>
+            <p className="mb-2 text-xs text-gray-400">{preview.applicantHint}</p>
+            {preview.applicantRows.length === 0 ? (
+              <EmptyState message="신청인 집계가 없습니다" />
+            ) : (
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-400">
+                  <tr>
+                    {preview.applicantHeaders.map((h, i) => (
+                      <th key={h} className={`px-2 py-1 ${i === 0 ? "" : "text-right"}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.applicantRows.map((row) => (
+                    <tr key={row.신청인} className="border-b border-gray-100">
+                      {preview.applicantHeaders.map((h, i) => (
+                        <td key={h} className={`px-2 py-1.5 ${i === 0 ? "" : "text-right"}`}>{row[h] ?? ""}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+          {preview.winRows.length ? (
+            <Card className="print-area overflow-x-auto">
+              <div className="text-sm font-medium">1착 기록 말</div>
+              <p className="mb-2 text-xs text-gray-400">1착 수 내림차순 · 통산 career_summary 기준</p>
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-400">
+                  <tr>
+                    {["마명", "경주마명", "신청인", "출전(회)", "1착(회)", "상금(원)"].map((h, i) => (
+                      <th key={h} className={`px-2 py-1 ${i < 3 ? "" : "text-right"}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.winRows.map((row) => (
+                    <tr key={`${row.마명}-${row.신청인}`} className="border-b border-gray-100">
+                      <td className="px-2 py-1.5">{row.마명}</td>
+                      <td className="px-2 py-1.5">{row.경주마명}</td>
+                      <td className="px-2 py-1.5">{row.신청인}</td>
+                      <td className="px-2 py-1.5 text-right">{row["출전(회)"]}</td>
+                      <td className="px-2 py-1.5 text-right">{row["1착(회)"]}</td>
+                      <td className="px-2 py-1.5 text-right">{row["상금(원)"]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          ) : null}
+        </>
       )}
     </div>
   );
