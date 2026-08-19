@@ -16,3 +16,9 @@ ENV/
 # 로컬 DB 및 로그 파일 (필요시)
 *.db
 *.log.env
+
+# React app
+web/node_modules/
+web/dist/
+web/.env
+web/.vendor/
