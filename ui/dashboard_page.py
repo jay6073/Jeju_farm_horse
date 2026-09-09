@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from nicegui import run, ui
 
-from models.horse import HORSE_SPECIES
+from config.constants import STATUS_ENTRUSTED
+from models.horse import HORSE_SPECIES, STATUS_NORMAL
 from repository.horse_repository import HorseRepository
 from services import dashboard_service, entrustment_dashboard_service, entrustment_service, racing_service
 from ui.nav import render_nav
@@ -43,6 +44,26 @@ async def dashboard_page() -> None:
 
         # selected_filter: {"type": "species"|"entrustment"|None, "value": str|None}
         selected_filter = {"type": None, "value": None}
+
+        def _in_headcount(h) -> bool:
+            """counts(마종별 카드)에 포함되는 보유마인지 판정 — get_species_counts()와 동일 기준.
+            위수탁마는 위탁중만, 나머지 마종은 상태='정상'만 포함."""
+            if h.마종 == "위수탁마":
+                return entrustment_status_map.get(h.마번) == STATUS_ENTRUSTED
+            return h.상태 == STATUS_NORMAL
+
+        def _matches_filter(h) -> bool:
+            """selected_filter 조건에 h(Horse)가 부합하는지 판정. 목록/집계에서 공통 사용."""
+            ftype, fvalue = selected_filter["type"], selected_filter["value"]
+            if ftype is None:
+                return _in_headcount(h)          # 합계 카드 = 모든 마종 카드 두수의 합집합
+            if ftype == "species":
+                return h.마종 == fvalue and _in_headcount(h)
+            if ftype == "entrustment":
+                if fvalue == "미확인":
+                    return h.마번 in unverified_ids
+                return entrustment_status_map.get(h.마번) == fvalue
+            return True
 
         with ui.row().classes("w-full gap-3 flex-wrap") as card_row:
             pass
@@ -101,16 +122,7 @@ async def dashboard_page() -> None:
                 )
 
         def _filtered_horse_ids() -> set[str]:
-            ftype, fvalue = selected_filter["type"], selected_filter["value"]
-            horses = all_horses
-            if ftype == "species":
-                horses = [h for h in horses if h.마종 == fvalue]
-            elif ftype == "entrustment":
-                if fvalue == "미확인":
-                    horses = [h for h in horses if h.마번 in unverified_ids]
-                else:
-                    horses = [h for h in horses if entrustment_status_map.get(h.마번) == fvalue]
-            return {h.마번 for h in horses}
+            return {h.마번 for h in all_horses if _matches_filter(h)}
 
         def render_race_stat_cards() -> None:
             race_stats_row.clear()
@@ -131,19 +143,10 @@ async def dashboard_page() -> None:
             list_container.clear()
             filter_text = (filter_text or "").strip()
 
-            filtered = [h for h in all_horses if not filter_text or filter_text in h.마명]
-
-            ftype, fvalue = selected_filter["type"], selected_filter["value"]
-            if ftype == "species":
-                filtered = [h for h in filtered if h.마종 == fvalue]
-            elif ftype == "entrustment":
-                if fvalue == "미확인":
-                    filtered = [h for h in filtered if h.마번 in unverified_ids]
-                else:
-                    filtered = [
-                        h for h in filtered
-                        if entrustment_status_map.get(h.마번) == fvalue
-                    ]
+            filtered = [
+                h for h in all_horses
+                if (not filter_text or filter_text in h.마명) and _matches_filter(h)
+            ]
 
             with list_container:
                 if not filtered:
