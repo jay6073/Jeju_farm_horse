@@ -15,11 +15,12 @@
         <h1>전년·금년 예산 비교</h1>
         <p class="toolbar-sub">수익 · 비용 · 자본을 한 장에서 비교</p>
       </div>
-      <div class="toolbar-actions">
+       <div class="toolbar-actions">
         <label class="btn btn-secondary file-btn">
           작업 불러오기
           <input type="file" id="jsonInput" accept=".json,application/json" hidden />
         </label>
+        <button type="button" class="btn btn-secondary" id="loadServerBtn">서버에서 불러오기</button> <!-- 추가 -->
         <label class="btn btn-secondary file-btn">
           엑셀 불러오기
           <input type="file" id="excelInput" accept=".xlsx,.xls,.csv" hidden />
@@ -31,6 +32,8 @@
         <button type="button" class="btn btn-secondary" id="exportExcelBtn">엑셀 내려받기</button>
         <button type="button" class="btn btn-secondary" id="saveFileAsBtn">다른 파일로 저장</button>
         <button type="button" class="btn btn-primary" id="saveFileBtn">작업 저장</button>
+        <button type="button" class="btn btn-secondary" id="saveServerAsBtn">서버에 새로 저장</button> <!-- 추가 -->
+        <button type="button" class="btn btn-secondary" id="saveServerBtn">서버 저장</button> <!-- 추가 -->
         <button type="button" class="btn btn-secondary" id="clearSaveBtn">초기화</button>
       </div>
       <p class="save-status no-print" id="saveStatus">작업 저장 안 됨</p>

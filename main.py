@@ -21,6 +21,7 @@ from ui import auction_page  # noqa: F401
 from ui import racing_page  # noqa: F401
 from ui import profile_page  # noqa: F401
 from ui import budget_compare_page  # noqa: F401         # 추가
+from ui.budget_api import router as budget_api_router    # 추가 (API)
 from ui.theme import apply_global_theme
 
 BASE_DIR = Path(__file__).resolve().parent                # 추가
@@ -30,6 +31,9 @@ BASE_DIR = Path(__file__).resolve().parent                # 추가
 app.add_static_files(                                     # 추가
     "/apps/budget-compare", str(BASE_DIR / "budget-compare")
 )
+
+# 예산 작업 저장/불러오기 API (/api/budget/...)
+app.include_router(budget_api_router)                     # 추가 (API)
 
 
 @ui.page("/")

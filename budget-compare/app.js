@@ -10,6 +10,11 @@ let isDirty = false;
 /** 작업 저장에 사용 중인 파일 핸들. 있으면 [작업 저장]이 같은 파일에 덮어쓴다. */
 let fileHandle = null;
 
+/** 서버(Supabase)에 저장된 작업. 있으면 [서버 저장]이 같은 작업을 덮어쓴다. */
+let currentWorkId = null;
+let currentWorkTitle = '';
+const API_BASE = '/api/budget';
+
 function uid() {
   return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
 }
@@ -197,6 +202,8 @@ async function loadFromFile(file) {
       alert('이 파일에서 작업 내용을 찾지 못했습니다.\n엑셀 파일이라면 [엑셀 불러오기]를 사용해 주세요.');
       return;
     }
+    currentWorkId = null;
+    currentWorkTitle = '';
     render();
     saveState();
     updateSaveStatus(data.savedAt || null, false, `작업 불러옴 (${file.name})`);
@@ -206,12 +213,144 @@ async function loadFromFile(file) {
   }
 }
 
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`서버 응답 ${res.status} ${detail}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function defaultWorkTitle() {
+  const prev = document.getElementById('prevYear')?.value || '';
+  const curr = document.getElementById('currYear')?.value || '';
+  return `예산비교 ${prev}-${curr}`;
+}
+
+/** asNew=true면 이름을 새로 받아 별도 작업으로 저장한다. */
+async function saveToServer(asNew = false) {
+  flushActiveCurrInput();
+  let title = currentWorkTitle;
+  if (asNew || !currentWorkId) {
+    const input = prompt('서버에 저장할 작업 이름을 입력하세요.', title || defaultWorkTitle());
+    if (input === null) return false;
+    title = input.trim() || defaultWorkTitle();
+  }
+  try {
+    const body = JSON.stringify({ title, payload: buildPayload() });
+    const saved = !asNew && currentWorkId
+      ? await apiFetch(`/works/${currentWorkId}`, { method: 'PUT', body })
+      : await apiFetch('/works', { method: 'POST', body });
+    currentWorkId = saved.id;
+    currentWorkTitle = saved.title;
+    isDirty = false;
+    saveState();
+    updateSaveStatus(saved.updated_at, false, `서버에 저장됨 (${saved.title})`);
+    return true;
+  } catch (err) {
+    console.error('서버 저장 실패:', err);
+    updateSaveStatus(null, true, '서버 저장 실패 — [작업 저장]으로 파일에 보관해 주세요');
+    return false;
+  }
+}
+
+async function loadFromServer(id) {
+  if (isDirty && !confirm('저장하지 않은 수정 내용이 있습니다.\n서버 작업으로 바꿀까요?')) return false;
+  try {
+    const work = await apiFetch(`/works/${id}`);
+    if (!applyPayload(work.payload)) {
+      alert('작업 내용을 화면에 적용하지 못했습니다.');
+      return false;
+    }
+    currentWorkId = work.id;
+    currentWorkTitle = work.title;
+    fileHandle = null;
+    render();
+    saveState();
+    updateSaveStatus(work.updated_at, false, `서버에서 불러옴 (${work.title})`);
+    return true;
+  } catch (err) {
+    console.error('서버 불러오기 실패:', err);
+    alert('서버에서 작업을 불러오지 못했습니다.');
+    return false;
+  }
+}
+
+async function openServerWorks() {
+  let dlg = document.getElementById('serverWorksDialog');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'serverWorksDialog';
+    dlg.innerHTML = `
+      <h3 style="margin:0 0 12px">서버에 저장된 작업</h3>
+      <div id="serverWorksList" style="min-width:420px;max-height:50vh;overflow:auto"></div>
+      <div style="margin-top:12px;text-align:right"><button type="button" id="serverWorksClose">닫기</button></div>`;
+    document.body.appendChild(dlg);
+    dlg.querySelector('#serverWorksClose').addEventListener('click', () => dlg.close());
+  }
+  const list = dlg.querySelector('#serverWorksList');
+  list.textContent = '불러오는 중…';
+  dlg.showModal();
+
+  try {
+    const works = await apiFetch('/works');
+    list.textContent = '';
+    if (!works.length) {
+      list.textContent = '저장된 작업이 없습니다.';
+      return;
+    }
+    works.forEach((w) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #eee';
+
+      const label = document.createElement('span');
+      label.style.flex = '1';
+      const when = new Date(w.updated_at).toLocaleString('ko-KR');
+      label.textContent = `${w.title}  (${when})`;   // textContent: 작업 이름을 HTML로 해석하지 않음
+
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.textContent = '불러오기';
+      openBtn.addEventListener('click', async () => {
+        if (await loadFromServer(w.id)) dlg.close();
+      });
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.textContent = '삭제';
+      delBtn.addEventListener('click', async () => {
+        if (!confirm(`'${w.title}' 작업을 서버에서 삭제할까요?\n되돌릴 수 없습니다.`)) return;
+        try {
+          await apiFetch(`/works/${w.id}`, { method: 'DELETE' });
+          if (currentWorkId === w.id) { currentWorkId = null; currentWorkTitle = ''; }
+          row.remove();
+        } catch (err) {
+          console.error(err);
+          alert('삭제하지 못했습니다.');
+        }
+      });
+
+      row.append(label, openBtn, delBtn);
+      list.appendChild(row);
+    });
+  } catch (err) {
+    console.error(err);
+    list.textContent = '목록을 불러오지 못했습니다.';
+  }
+}
+
 function clearSavedState() {
   if (!confirm('화면을 샘플 데이터로 초기화할까요?\n저장해 둔 .json 파일은 지워지지 않습니다.')) return;
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch (_) { /* ignore */ }
   fileHandle = null;
+  currentWorkId = null;
+  currentWorkTitle = ''; 
   items = getDefaultItems();
   costBaseline = 'exec';
   document.querySelectorAll('input[name="costBaseline"]').forEach((el) => {
@@ -1241,6 +1380,8 @@ function importSheet(file) {
       }
 
       items = mapped;
+      currentWorkId = null;
+      currentWorkTitle = '';
       const prevEl = document.getElementById('prevYear');
       const currEl = document.getElementById('currYear');
       if (prevEl && !prevEl.dataset.userEdited) prevEl.value = '2026';
@@ -1754,6 +1895,9 @@ function init() {
   document.getElementById('reportPrintBtn').addEventListener('click', () => window.print());
   document.getElementById('saveFileBtn').addEventListener('click', () => saveToFile(true));
   document.getElementById('saveFileAsBtn').addEventListener('click', () => saveToFile(false));
+  document.getElementById('saveServerBtn')?.addEventListener('click', () => saveToServer(false));
+  document.getElementById('saveServerAsBtn')?.addEventListener('click', () => saveToServer(true));
+  document.getElementById('loadServerBtn')?.addEventListener('click', openServerWorks);
   document.getElementById('jsonInput').addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (file) loadFromFile(file);
