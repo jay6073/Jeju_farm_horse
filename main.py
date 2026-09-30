@@ -2,7 +2,7 @@
 NiceGUI 앱 엔트리포인트.
 현재 등록된 화면: main_page(조회), manage_page(관리), dashboard_page(대시보드),
 print_page(명단출력), entrustment/auction/racing, profile_page(통합조회),
-budget_compare_page(예산 비교).
+budget_compare_page(예산 비교), staff_page(인력현황).
 """
 
 from dotenv import load_dotenv
@@ -21,6 +21,7 @@ from ui import auction_page  # noqa: F401
 from ui import racing_page  # noqa: F401
 from ui import profile_page  # noqa: F401
 from ui import budget_compare_page  # noqa: F401         # 추가
+from ui import staff_page  # noqa: F401                  # 추가
 from ui.budget_api import router as budget_api_router    # 추가 (API)
 from ui.theme import apply_global_theme
 

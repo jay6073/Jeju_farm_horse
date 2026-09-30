@@ -20,10 +20,12 @@ _PAGES = [
     ("/auction", "경매관리", "gavel"),
     ("/racing", "경주성적", "flag"),
     ("/profile", "통합조회", "folder_shared"),
+    (None, None, None),
+    ("/budget-compare", "예산 비교", "compare_arrows"),
     (None, None, None),                                  # 추가
-    ("/budget-compare", "예산 비교", "compare_arrows"),   # 추가
+    ("/staff", "인력현황", "badge"),                      # 추가
 ]
-        
+
 
 def render_nav(active_path: str):
     apply_global_theme()
