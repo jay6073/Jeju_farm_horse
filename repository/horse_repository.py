@@ -165,6 +165,9 @@ def _row_to_horse(row: dict) -> Horse:
         부마명=row.get("부마명"),
         모마명=row.get("모마명"),
         profile_scraped_at=scraped_at if isinstance(scraped_at, datetime) else None,
+        도입가=row.get("도입가"),
+        보험가입금액=row.get("보험가입금액"),
+        보험료=row.get("보험료"),
     )
 
 
@@ -340,6 +343,20 @@ class HorseRepository:
                     (상태, 상태발생일자, horse_ids),
                 )
                 return cur.rowcount
+
+    def update_price_info(
+        self,
+        horse_id: int,
+        도입가: int | None,
+        보험가입금액: int | None,
+        보험료: int | None,
+    ) -> None:
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE horses SET 도입가 = %s, 보험가입금액 = %s, 보험료 = %s "
+                "WHERE id = %s",
+                (도입가, 보험가입금액, 보험료, horse_id),
+            )
 
     def update_species_bulk(self, horse_ids: list[int], 마종: str) -> int:
         """

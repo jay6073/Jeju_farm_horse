@@ -19,7 +19,7 @@ from nicegui import run, ui
 
 from models.horse import HORSE_SPECIES, Horse
 from repository.horse_repository import HorseRepository
-from services import export_service, scraping_service
+from services import scraping_service
 from services.scraping_service import ScrapingError
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES
@@ -67,6 +67,59 @@ async def main_page(horse_id: Optional[int] = None) -> None:
                     ui.spinner(size="lg")
                     ui.label("마적사항을 불러오는 중...").classes("text-gray-500 text-sm")
 
+        def render_price_section(horse: Horse) -> None:
+            """씨수말 전용: 도입가·보험가입금액·보험료. horsepia 스크래핑과 무관."""
+            if horse.마종 != "씨수말":
+                return
+
+            def parse_won(text: str) -> int | None:
+                digits = "".join(ch for ch in (text or "") if ch.isdigit())
+                return int(digits) if digits else None
+
+            with ui.card().classes(CARD_CLASSES + " p-4 mt-3"):
+                ui.label("도입가 · 보험 정보").classes("text-sm font-medium mb-2")
+                with ui.row().classes("gap-3"):
+                    price_input = ui.input(
+                        label="도입가(원)",
+                        value=f"{horse.도입가:,}" if horse.도입가 else "",
+                    ).classes("flex-1")
+                    insurance_amount_input = ui.input(
+                        label="보험가입금액(원, 보장금액)",
+                        value=f"{horse.보험가입금액:,}" if horse.보험가입금액 else "",
+                    ).classes("flex-1")
+                    insurance_fee_input = ui.input(
+                        label="보험료(원, 실제 납부액)",
+                        value=f"{horse.보험료:,}" if horse.보험료 else "",
+                    ).classes("flex-1")
+
+                ratio_label = ui.label().classes("text-sm text-gray-500 mt-1")
+
+                def update_ratio() -> None:
+                    price = parse_won(price_input.value)
+                    amount = parse_won(insurance_amount_input.value)
+                    if price and amount:
+                        ratio = amount / price * 100
+                        ratio_label.text = f"도입가 대비 보험가입금액 비율: {ratio:.1f}%"
+                    else:
+                        ratio_label.text = "도입가와 보험가입금액을 입력하면 비율이 표시됩니다."
+
+                price_input.on_value_change(update_ratio)
+                insurance_amount_input.on_value_change(update_ratio)
+                update_ratio()
+
+                async def on_save() -> None:
+                    price = parse_won(price_input.value)
+                    amount = parse_won(insurance_amount_input.value)
+                    fee = parse_won(insurance_fee_input.value)
+                    await run.io_bound(
+                        _repo.update_price_info, horse.id, price, amount, fee
+                    )
+                    ui.notify("저장되었습니다.", type="positive")
+
+                ui.button("저장", on_click=on_save).props("color=primary").classes(
+                    "mt-2"
+                )
+
         def render_horse_card(horse: Horse, basic_info: dict[str, str]) -> None:
             result_container.clear()
             with result_container:
@@ -82,22 +135,6 @@ async def main_page(horse_id: Optional[int] = None) -> None:
                             ui.label(label).classes("text-gray-500")
                             ui.label(value)
 
-                    def on_download_excel() -> None:
-                        excel_bytes = export_service.build_horse_detail_excel(
-                            horse, basic_info
-                        )
-                        ui.download(
-                            excel_bytes,
-                            filename=f"{horse.마명}_마적사항.xlsx",
-                            media_type=(
-                                "application/vnd.openxmlformats-officedocument"
-                                ".spreadsheetml.sheet"
-                            ),
-                        )
-
-                    ui.button(
-                        "엑셀로 저장", icon="download", on_click=on_download_excel
-                    ).props("outline color=primary").classes("mt-2")
 
         async def load_and_render(horse: Horse) -> None:
             render_loading()
@@ -122,6 +159,8 @@ async def main_page(horse_id: Optional[int] = None) -> None:
             )
             try:
                 render_horse_card(horse, basic_info)
+                with result_container:
+                    render_price_section(horse)  # ← 추가
             except RuntimeError:
                 pass
 

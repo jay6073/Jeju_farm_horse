@@ -107,6 +107,10 @@ class Horse:
     부마명: Optional[str] = None
     모마명: Optional[str] = None
     profile_scraped_at: Optional[datetime] = None
+     # 씨수말 전용 — 사람이 직접 입력 (horsepia 스크래핑과 무관)
+    도입가: Optional[int] = None
+    보험가입금액: Optional[int] = None
+    보험료: Optional[int] = None
 
     def __post_init__(self) -> None:
         if not self.마명 or not self.마명.strip():
