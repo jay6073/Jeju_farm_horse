@@ -14,7 +14,7 @@ from repository.horse_repository import pool
 # 화면의 드롭다운·검증과 반드시 같은 순서·값을 유지한다.
 DUTY_PARTS = ["지원파트", "씨수말파트", "전기육성파트", "교육파트"]
 
-_COLUMNS = "id, name, birth_date, position, contact, duty_part, created_at, updated_at"
+_COLUMNS = "id, name, birth_date, position, contact, duty_part, note, created_at, updated_at"
 
 _duty_parts_sql = ", ".join(f"'{p}'" for p in DUTY_PARTS)  # 고정 상수 목록이라 안전
 
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS staff (
     position   TEXT NOT NULL DEFAULT '',
     contact    TEXT NOT NULL DEFAULT '',
     duty_part  TEXT NOT NULL CHECK (duty_part IN ({_duty_parts_sql})),
+    note       TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -67,27 +68,35 @@ def get_staff(staff_id: UUID) -> dict | None:
         return cur.fetchone()
 
 
-def create_staff(name: str, birth_date, position: str, contact: str, duty_part: str) -> dict:
+def create_staff(
+    name: str, birth_date, position: str, contact: str, duty_part: str, note: str
+) -> dict:
     _ensure_ready()
     with pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            f"INSERT INTO staff (name, birth_date, position, contact, duty_part) "
-            f"VALUES (%s, %s, %s, %s, %s) RETURNING {_COLUMNS}",
-            (name, birth_date, position, contact, duty_part),
+            f"INSERT INTO staff (name, birth_date, position, contact, duty_part, note) "
+            f"VALUES (%s, %s, %s, %s, %s, %s) RETURNING {_COLUMNS}",
+            (name, birth_date, position, contact, duty_part, note),
         )
         return cur.fetchone()
 
 
 def update_staff(
-    staff_id: UUID, name: str, birth_date, position: str, contact: str, duty_part: str
+    staff_id: UUID,
+    name: str,
+    birth_date,
+    position: str,
+    contact: str,
+    duty_part: str,
+    note: str,
 ) -> dict | None:
     _ensure_ready()
     with pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             f"UPDATE staff SET name = %s, birth_date = %s, position = %s, "
-            f"contact = %s, duty_part = %s, updated_at = now() "
+            f"contact = %s, duty_part = %s, note = %s, updated_at = now() "
             f"WHERE id = %s RETURNING {_COLUMNS}",
-            (name, birth_date, position, contact, duty_part, staff_id),
+            (name, birth_date, position, contact, duty_part, note, staff_id),
         )
         return cur.fetchone()
 

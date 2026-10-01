@@ -3,7 +3,9 @@
 - 목록은 수행업무파트별로 묶어서 표시 (지원파트→씨수말파트→전기육성파트→교육파트)
 - 등록·수정은 같은 다이얼로그를 재사용
 - 연락처는 010-0000-0000 형식만 허용 (화면 검증 + DB 제약 이중 방어)
-- 인쇄: 업무파트별 구분은 화면과 동일하게 유지, 칼럼(직위/생년월일·나이/연락처)은 선택 가능
+- 비고(note): 임금피크 등 자유 텍스트 메모
+- 인쇄: 업무파트별 구분은 화면과 동일하게 유지, 파트 전체(소제목+카드)는 페이지 중간에서 끊기지 않음,
+  칼럼(직위/생년월일·나이/연락처)은 선택 가능
 """
 from __future__ import annotations
 
@@ -44,14 +46,30 @@ _PRINT_STYLE = """
     width: 100% !important;
     max-width: none !important;
     left: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   .print-area {
     box-shadow: none !important;
-    border: 1px solid #000 !important;
+    border: none !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
-  /* 인쇄 시 선택 해제한 칼럼 숨기기 (body에 붙는 클래스로 제어) */
+  /* 파트 하나(소제목+카드)를 통째로 묶어서, 페이지 중간에서 끊기지 않게 함 */
+  .part-group {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-row {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
   body.print-hide-position .col-position { display: none !important; }
   body.print-hide-birth    .col-birth    { display: none !important; }
   body.print-hide-contact  .col-contact  { display: none !important; }
@@ -100,6 +118,7 @@ async def staff_page() -> None:
             part_select = ui.select(options=DUTY_PARTS, label="수행업무파트").classes(
                 "w-full"
             )
+            note_input = ui.input(label="비고 (예: 임금피크)").classes("w-full")
             with ui.row().classes("w-full justify-end gap-2"):
                 ui.button("취소", on_click=dialog.close).props("flat")
                 save_btn = ui.button("저장").props("color=primary")
@@ -130,43 +149,47 @@ async def staff_page() -> None:
             with list_container:
                 for part in DUTY_PARTS:
                     members = grouped.get(part, [])
-                    ui.label(f"{part}  ({len(members)}명)").classes(
-                        "text-sm text-gray-500 mt-2"
-                    )
-                    with ui.card().classes(CARD_CLASSES + " p-4"):
-                        if not members:
-                            empty_state("등록된 인력이 없습니다", icon="info")
-                            continue
-                        for s in members:
-                            with ui.row().classes(
-                                "items-center gap-3 w-full text-sm py-1 "
-                                "border-b border-gray-100"
-                            ):
-                                ui.label(s["name"]).classes(
-                                    "w-20 font-medium col-name"
-                                )
-                                ui.label(s["position"] or "-").classes(
-                                    "w-32 text-gray-500 col-position"
-                                )
-                                age = _calc_age(s["birth_date"])
-                                ui.label(f"{s['birth_date']} ({age}세)").classes(
-                                    "w-40 text-gray-500 col-birth"
-                                )
-                                ui.label(s["contact"] or "-").classes(
-                                    "w-32 text-gray-500 col-contact"
-                                )
-                                ui.space()
-                                ui.button(
-                                    icon="edit", on_click=lambda s=s: open_dialog(s)
-                                ).props("flat dense round size=sm").classes(
-                                    "no-print"
-                                )
-                                ui.button(
-                                    icon="delete",
-                                    on_click=lambda s=s: confirm_delete(s),
-                                ).props(
-                                    "flat dense round size=sm color=negative"
-                                ).classes("no-print")
+                    with ui.column().classes("w-full gap-1 part-group"):
+                        ui.label(f"{part}  ({len(members)}명)").classes(
+                            "text-sm text-gray-500 mt-2 part-title"
+                        )
+                        with ui.card().classes(CARD_CLASSES + " p-4"):
+                            if not members:
+                                empty_state("등록된 인력이 없습니다", icon="info")
+                                continue
+                            for s in members:
+                                with ui.row().classes(
+                                    "items-center gap-3 w-full text-sm py-1 "
+                                    "border-b border-gray-100 print-row"
+                                ):
+                                    ui.label(s["name"]).classes(
+                                        "w-20 font-medium col-name"
+                                    )
+                                    ui.label(s["position"] or "-").classes(
+                                        "w-32 text-gray-500 col-position"
+                                    )
+                                    age = _calc_age(s["birth_date"])
+                                    ui.label(f"{s['birth_date']} ({age}세)").classes(
+                                        "w-40 text-gray-500 col-birth"
+                                    )
+                                    ui.label(s["contact"] or "-").classes(
+                                        "w-32 text-gray-500 col-contact"
+                                    )
+                                    ui.label(s["note"] or "").classes(
+                                        "text-amber-600 text-xs col-note"
+                                    )
+                                    ui.space()
+                                    ui.button(
+                                        icon="edit", on_click=lambda s=s: open_dialog(s)
+                                    ).props("flat dense round size=sm").classes(
+                                        "no-print"
+                                    )
+                                    ui.button(
+                                        icon="delete",
+                                        on_click=lambda s=s: confirm_delete(s),
+                                    ).props(
+                                        "flat dense round size=sm color=negative"
+                                    ).classes("no-print")
 
         def open_dialog(staff: dict | None = None) -> None:
             nonlocal editing_id
@@ -177,6 +200,7 @@ async def staff_page() -> None:
             position_input.value = staff["position"] if staff else ""
             contact_input.value = staff["contact"] if staff else ""
             part_select.value = staff["duty_part"] if staff else None
+            note_input.value = staff["note"] if staff else ""
             dialog.open()
 
         async def on_save() -> None:
@@ -204,13 +228,23 @@ async def staff_page() -> None:
             name = name_input.value.strip()
             position = (position_input.value or "").strip()
             part = part_select.value
+            note = (note_input.value or "").strip()
 
             if editing_id is None:
-                await run.io_bound(create_staff, name, birth, position, contact, part)
+                await run.io_bound(
+                    create_staff, name, birth, position, contact, part, note
+                )
                 ui.notify(f"'{name}' 등록 완료", type="positive")
             else:
                 await run.io_bound(
-                    update_staff, editing_id, name, birth, position, contact, part
+                    update_staff,
+                    editing_id,
+                    name,
+                    birth,
+                    position,
+                    contact,
+                    part,
+                    note,
                 )
                 ui.notify(f"'{name}' 수정 완료", type="positive")
 
@@ -245,7 +279,7 @@ async def staff_page() -> None:
                 hide_classes.append("print-hide-contact")
             hide_js = ",".join(f"'{c}'" for c in hide_classes)
 
-            print_dialog.close()  # 인쇄 전에 다이얼로그를 먼저 닫는다
+            print_dialog.close()
             await ui.run_javascript(
                 f"""
                 const keep = document.body.className
