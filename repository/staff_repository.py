@@ -8,11 +8,10 @@ import threading
 from uuid import UUID
 
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
+from config.constants import DUTY_PARTS   # 추가
 from repository.horse_repository import pool
-
-# 화면의 드롭다운·검증과 반드시 같은 순서·값을 유지한다.
-DUTY_PARTS = ["지원파트", "씨수말파트", "전기육성파트", "교육파트"]
 
 _COLUMNS = "id, name, birth_date, position, contact, duty_part, note, created_at, updated_at"
 

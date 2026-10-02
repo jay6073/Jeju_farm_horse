@@ -12,6 +12,7 @@ from typing import Any, Iterator, Optional
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from config.constants import HORSE_DUTY_PARTS
 from models.horse import (
     Horse,
     STATUS_NORMAL,
@@ -122,6 +123,17 @@ def init_db() -> None:
                     "ALTER TABLE horses "
                     "ADD COLUMN IF NOT EXISTS profile_scraped_at TIMESTAMPTZ;"
                 )
+                cur.execute(
+                    "ALTER TABLE horses ADD COLUMN IF NOT EXISTS 관리파트 TEXT;"
+                )
+                duty_parts_sql = ", ".join(f"'{p}'" for p in HORSE_DUTY_PARTS)
+                cur.execute(
+                    "ALTER TABLE horses DROP CONSTRAINT IF EXISTS chk_horses_duty_part;"
+                )
+                cur.execute(
+                    "ALTER TABLE horses ADD CONSTRAINT chk_horses_duty_part "
+                    f"CHECK (관리파트 IS NULL OR 관리파트 IN ({duty_parts_sql}));"
+                )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -168,6 +180,7 @@ def _row_to_horse(row: dict) -> Horse:
         도입가=row.get("도입가"),
         보험가입금액=row.get("보험가입금액"),
         보험료=row.get("보험료"),
+        관리파트=row.get("관리파트"),  # 추가
     )
 
 
@@ -403,6 +416,22 @@ class HorseRepository:
                     WHERE id = ANY(%s)
                     """,
                     (마종, horse_ids),
+                )
+                return cur.rowcount
+
+    def update_duty_part_bulk(self, horse_ids: list[int], 관리파트: str) -> int:
+        if not horse_ids:
+            return 0
+        if 관리파트 not in HORSE_DUTY_PARTS:
+            raise ValueError(
+                f"유효하지 않은 관리파트입니다: {관리파트!r} "
+                f"(허용: {', '.join(HORSE_DUTY_PARTS)})"
+            )
+        with _get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE horses SET 관리파트 = %s WHERE id = ANY(%s)",
+                    (관리파트, horse_ids),
                 )
                 return cur.rowcount
 

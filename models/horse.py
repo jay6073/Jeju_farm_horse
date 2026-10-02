@@ -111,6 +111,7 @@ class Horse:
     도입가: Optional[int] = None
     보험가입금액: Optional[int] = None
     보험료: Optional[int] = None
+    관리파트: Optional[str] = None  # 추가
 
     def __post_init__(self) -> None:
         if not self.마명 or not self.마명.strip():

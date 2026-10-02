@@ -31,6 +31,7 @@ from services import import_service
 from services.import_service import ImportValidationError
 from ui.nav import render_nav
 from ui.theme import CARD_CLASSES, empty_state, status_badge
+from config.constants import HORSE_DUTY_PARTS
 
 # 위수탁마는 위탁 계약(entrustment_page.py)을 통해서만 등록 가능 — 개별 추가에서는 제외
 MANAGEABLE_SPECIES = [s for s in HORSE_SPECIES if s != "위수탁마"]
@@ -49,6 +50,7 @@ def manage_page() -> None:
             tab_status = ui.tab("보유상태 변경").classes("flex-1 text-xs sm:text-sm px-1")
             tab_species = ui.tab("용도변경").classes("flex-1 text-xs sm:text-sm px-1")
             tab_import = ui.tab("엑셀 일괄 등록").classes("flex-1 text-xs sm:text-sm px-1")
+            tab_duty = ui.tab("관리파트 설정").classes("flex-1 text-xs sm:text-sm px-1")  # ← 들여쓰기가 위 줄들과 정확히 같아야 함
 
         with ui.tab_panels(tabs, value=tab_add).classes("w-full p-1 sm:p-4"):
             with ui.tab_panel(tab_add):
@@ -59,6 +61,8 @@ def manage_page() -> None:
                 _build_species_change_section()
             with ui.tab_panel(tab_import):
                 _build_import_section()
+            with ui.tab_panel(tab_duty):  # 추가
+                _build_duty_part_section()
 
 
 def _build_add_section() -> None:
@@ -341,6 +345,90 @@ def _build_species_change_section() -> None:
 
         species_select.on_value_change(render_list)
 
+def _build_duty_part_section() -> None:
+    """전체 말에 관리파트(씨수말파트/전기육성파트/교육파트)를 일괄 매칭한다."""
+    checked_ids: set[int] = set()
+
+    with ui.column().classes("w-full max-w-2xl gap-3"):
+        ui.label(
+            "마종을 고른 뒤, 관리파트를 매칭할 말을 선택해 일괄 저장하세요."
+        ).classes("text-xs text-gray-400 break-words w-full")
+
+        species_select = ui.select(options=HORSE_SPECIES, label="마종").classes("w-full")
+        list_container = ui.column().classes("w-full")
+        form_container = ui.column().classes("w-full")
+
+        async def render_list() -> None:
+            list_container.clear()
+            form_container.clear()
+            checked_ids.clear()
+            species = species_select.value
+            if not species:
+                return
+
+            horses = await run.io_bound(_repo.get_active_names_by_species, species)
+
+            with list_container:
+                if not horses:
+                    empty_state(f"{species}에 해당하는 보유마가 없습니다", icon="info")
+                    return
+                with ui.card().classes(CARD_CLASSES + " p-4"):
+                    for horse in horses:
+                        with ui.row().classes("items-center gap-3 w-full"):
+
+                            def on_check(e, hid=horse.id) -> None:
+                                if e.value:
+                                    checked_ids.add(hid)
+                                else:
+                                    checked_ids.discard(hid)
+
+                            ui.checkbox(on_change=on_check)
+                            ui.label(horse.마명).classes("flex-1")
+                            ui.label(horse.관리파트 or "미지정").classes(
+                                "text-xs text-gray-400"
+                            )
+
+            with form_container:
+                with ui.card().classes(CARD_CLASSES + " p-4"):
+                    ui.label("선택한 말들의 관리파트 지정").classes(
+                        "text-sm text-gray-500 mb-2"
+                    )
+                    duty_select = ui.select(
+                        options=HORSE_DUTY_PARTS, label="관리파트"
+                    ).classes("w-full")
+
+                    def on_assign() -> None:
+                        ids = list(checked_ids)
+                        if not ids:
+                            ui.notify("대상 말을 선택하세요.", type="warning")
+                            return
+                        if not duty_select.value:
+                            ui.notify("관리파트를 선택하세요.", type="warning")
+                            return
+
+                        async def confirm() -> None:
+                            dialog.close()
+                            updated = await run.io_bound(
+                                _repo.update_duty_part_bulk,
+                                ids,
+                                duty_select.value,
+                            )
+                            ui.notify(f"{updated}마리 관리파트 저장 완료", type="positive")
+                            await render_list()
+
+                        with ui.dialog() as dialog, ui.card():
+                            ui.label(
+                                f"{len(ids)}마리를 [{duty_select.value}]로 "
+                                f"지정하시겠습니까?"
+                            )
+                            with ui.row().classes("w-full justify-end gap-2"):
+                                ui.button("취소", on_click=dialog.close).props("flat")
+                                ui.button("확인", on_click=confirm).props("color=primary")
+                        dialog.open()
+
+                    ui.button("관리파트 저장", on_click=on_assign).props("color=primary")
+
+        species_select.on_value_change(render_list)
 
 def _build_import_section() -> None:
     parsed_rows: list = []
