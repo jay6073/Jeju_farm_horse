@@ -52,7 +52,13 @@ CREATE TABLE IF NOT EXISTS horses (
     profile_scraped_at TIMESTAMPTZ
 );
 """
-
+# (위쪽) 상수
+LINKED_TABLE_LABELS = {
+    "auction_record": "경매기록",
+    "race_record": "경주성적",
+    "career_summary": "통산성적",
+    "entrustment": "위탁",
+}
 
 def _escape_copy_value(value: Any) -> str:
     """COPY TEXT FORMAT 스펙에 맞춘 NULL 및 특수문자 이스케이프."""
@@ -478,4 +484,39 @@ class HorseRepository:
         with _get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM horses WHERE 마번 = %s", (마번,))
+                return cur.rowcount
+
+    def count_linked_records(self, horse_ids: list[int]) -> dict[str, int]:
+        result = {table: 0 for table in LINKED_TABLE_LABELS}
+        if not horse_ids:
+            return result
+        with _get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 마번 FROM horses WHERE id = ANY(%s) AND 마번 IS NOT NULL",
+                    (horse_ids,),
+                )
+                mabeons = [r[0] for r in cur.fetchall()]
+                if not mabeons:
+                    return result
+                for table in LINKED_TABLE_LABELS:
+                    cur.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE horse_id = ANY(%s)",
+                        (mabeons,),
+                    )
+                    result[table] = cur.fetchone()[0]
+        return result
+
+    def delete_bulk(self, horse_ids: list[int]) -> int:
+        if not horse_ids:
+            return 0
+        linked = self.count_linked_records(horse_ids)
+        if any(linked.values()):
+            detail = ", ".join(
+                f"{LINKED_TABLE_LABELS[t]} {n}건" for t, n in linked.items() if n
+            )
+            raise ValueError(f"연관 기록이 있어 삭제할 수 없습니다: {detail}")
+        with _get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM horses WHERE id = ANY(%s)", (horse_ids,))
                 return cur.rowcount

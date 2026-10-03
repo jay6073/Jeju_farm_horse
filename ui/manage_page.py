@@ -6,6 +6,8 @@
 2. 보유상태 변경 (다중 선택 + 상태/발생일자/직접입력 사유, 정상 복귀 포함)
 3. 용도변경 (마종 변경, 위수탁마 제외)
 4. 엑셀 일괄 업로드 (최초 등록용, 미리보기 확인 후 반영)
+5. 관리파트 설정
+6. 말 삭제 (잘못 등록한 말 제거, 연관 기록이 있으면 차단)
 
 [통합 시 변경사항] 상단 탭 네비게이션 -> 좌측 사이드바로 전환.
 """
@@ -26,7 +28,7 @@ from models.horse import (
     Horse,
     normalize_custom_status,
 )
-from repository.horse_repository import HorseRepository
+from repository.horse_repository import HorseRepository, LINKED_TABLE_LABELS
 from services import import_service
 from services.import_service import ImportValidationError
 from ui.nav import render_nav
@@ -50,7 +52,8 @@ def manage_page() -> None:
             tab_status = ui.tab("보유상태 변경").classes("flex-1 text-xs sm:text-sm px-1")
             tab_species = ui.tab("용도변경").classes("flex-1 text-xs sm:text-sm px-1")
             tab_import = ui.tab("엑셀 일괄 등록").classes("flex-1 text-xs sm:text-sm px-1")
-            tab_duty = ui.tab("관리파트 설정").classes("flex-1 text-xs sm:text-sm px-1")  # ← 들여쓰기가 위 줄들과 정확히 같아야 함
+            tab_duty = ui.tab("관리파트 설정").classes("flex-1 text-xs sm:text-sm px-1")
+            tab_delete = ui.tab("말 삭제").classes("flex-1 text-xs sm:text-sm px-1")
 
         with ui.tab_panels(tabs, value=tab_add).classes("w-full p-1 sm:p-4"):
             with ui.tab_panel(tab_add):
@@ -61,8 +64,10 @@ def manage_page() -> None:
                 _build_species_change_section()
             with ui.tab_panel(tab_import):
                 _build_import_section()
-            with ui.tab_panel(tab_duty):  # 추가
+            with ui.tab_panel(tab_duty):
                 _build_duty_part_section()
+            with ui.tab_panel(tab_delete):
+                _build_delete_section()
 
 
 def _build_add_section() -> None:
@@ -345,6 +350,7 @@ def _build_species_change_section() -> None:
 
         species_select.on_value_change(render_list)
 
+
 def _build_duty_part_section() -> None:
     """전체 말에 관리파트(씨수말파트/전기육성파트/교육파트)를 일괄 매칭한다."""
     checked_ids: set[int] = set()
@@ -429,6 +435,118 @@ def _build_duty_part_section() -> None:
                     ui.button("관리파트 저장", on_click=on_assign).props("color=primary")
 
         species_select.on_value_change(render_list)
+
+
+def _build_delete_section() -> None:
+    """잘못 등록한 말을 선택해 완전 삭제한다. 연관 기록이 있으면 차단한다."""
+    checked_ids: set[int] = set()
+    names: dict[int, str] = {}
+
+    with ui.column().classes("w-full max-w-2xl gap-3"):
+        ui.label(
+            "잘못 등록한 말을 지우는 용도입니다. 삭제하면 되돌릴 수 없고, "
+            "과거 기준일의 보유현황 집계에서도 사라집니다. "
+            "경매·경주성적·통산성적·위탁 기록이 있는 말은 삭제할 수 없습니다. "
+            "실제로 보유했던 말이 나간 경우에는 '보유상태 변경'을 이용하세요."
+        ).classes("text-xs text-amber-600 break-words w-full")
+
+        species_select = ui.select(options=MANAGEABLE_SPECIES, label="마종").classes("w-full")
+        list_container = ui.column().classes("w-full")
+        form_container = ui.column().classes("w-full")
+
+        async def render_list() -> None:
+            list_container.clear()
+            form_container.clear()
+            checked_ids.clear()
+            names.clear()
+            species = species_select.value
+            if not species:
+                return
+
+            horses = await run.io_bound(_repo.get_all_by_species, species)
+            with list_container:
+                if not horses:
+                    empty_state(f"{species}에 해당하는 말이 없습니다", icon="info")
+                    return
+                with ui.card().classes(CARD_CLASSES + " p-4"):
+                    for horse in horses:
+                        names[horse.id] = horse.마명
+                        with ui.row().classes("items-center gap-3 w-full"):
+
+                            def on_check(e, hid=horse.id) -> None:
+                                if e.value:
+                                    checked_ids.add(hid)
+                                else:
+                                    checked_ids.discard(hid)
+
+                            ui.checkbox(on_change=on_check)
+                            ui.label(horse.마명).classes("flex-1")
+                            status_badge(horse.상태)
+
+            with form_container:
+
+                async def on_delete() -> None:
+                    ids = list(checked_ids)
+                    if not ids:
+                        ui.notify("삭제할 말을 선택하세요.", type="warning")
+                        return
+
+                    linked = await run.io_bound(_repo.count_linked_records, ids)
+                    if any(linked.values()):
+                        detail = ", ".join(
+                            f"{LINKED_TABLE_LABELS[t]} {n}건"
+                            for t, n in linked.items()
+                            if n
+                        )
+                        with ui.dialog() as block_dialog, ui.card():
+                            ui.label("연관 기록이 있어 삭제할 수 없습니다.").classes(
+                                "font-medium"
+                            )
+                            ui.label(f"선택한 말에 연결된 기록: {detail}").classes(
+                                "text-sm text-gray-600"
+                            )
+                            ui.label(
+                                "실제로 보유했던 말이 나간 경우에는 "
+                                "'보유상태 변경' 탭을 이용하세요."
+                            ).classes("text-xs text-gray-500")
+                            with ui.row().classes("w-full justify-end"):
+                                ui.button("확인", on_click=block_dialog.close).props(
+                                    "color=primary"
+                                )
+                        block_dialog.open()
+                        return
+
+                    async def confirm() -> None:
+                        dialog.close()
+                        try:
+                            deleted = await run.io_bound(_repo.delete_bulk, ids)
+                        except Exception as e:
+                            ui.notify(f"삭제하지 못했습니다: {e}", type="negative")
+                            return
+                        ui.notify(f"{deleted}마리 삭제 완료", type="positive")
+                        await render_list()
+
+                    preview = ", ".join(names.get(i, str(i)) for i in ids[:10])
+                    if len(ids) > 10:
+                        preview += f" 외 {len(ids) - 10}마리"
+
+                    with ui.dialog() as dialog, ui.card():
+                        ui.label(f"{len(ids)}마리를 완전 삭제하시겠습니까?").classes(
+                            "font-medium"
+                        )
+                        ui.label(preview).classes("text-sm text-gray-600")
+                        ui.label("삭제 후에는 되돌릴 수 없습니다.").classes(
+                            "text-xs text-red-600"
+                        )
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("취소", on_click=dialog.close).props("flat")
+                            ui.button("삭제", on_click=confirm).props("color=negative")
+                    dialog.open()
+
+                ui.button("선택한 말 삭제", on_click=on_delete).props("color=negative")
+
+        species_select.on_value_change(render_list)
+
 
 def _build_import_section() -> None:
     parsed_rows: list = []
