@@ -15,6 +15,7 @@ _PAGES = [
     ("/main", "조회", "search"),
     ("/manage", "관리", "edit_note"),
     ("/print", "명단출력", "print"),
+    ("/holding", "보유현황", "grid_view"),
     (None, None, None),
     ("/entrustment", "위탁관리", "assignment"),
     ("/auction", "경매관리", "gavel"),

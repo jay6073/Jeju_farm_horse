@@ -49,7 +49,9 @@ class HoldingMatrix:
     row_totals: dict[str, int]           # 마종 -> 합계
     col_totals: dict[str, int]           # 관리파트 -> 합계
     grand_total: int
-    unassigned_count: int                # 보유 중인데 관리파트 미지정인 두수
+    unassigned_count: int    # 보유 중인데 관리파트 미지정인 두수
+    unassigned_by_species: dict[str, int]  # 추가: 마종 -> 미지정 두수
+    unassigned_reasons: dict[tuple[str, str], int]  # 추가: (마종, 상태) -> 두수
 
 
 def build_holding_matrix(as_of: date, repo: HorseRepository) -> HoldingMatrix:
@@ -60,6 +62,8 @@ def build_holding_matrix(as_of: date, repo: HorseRepository) -> HoldingMatrix:
     row_totals = {s: 0 for s in HORSE_SPECIES}
     col_totals = {p: 0 for p in HORSE_DUTY_PARTS}
     unassigned = 0
+    unassigned_by_species: dict[str, int] = {}
+    unassigned_reasons: dict[tuple[str, str], int] = {}
 
     for h in held:
         row_totals[h.마종] = row_totals.get(h.마종, 0) + 1
@@ -69,6 +73,9 @@ def build_holding_matrix(as_of: date, repo: HorseRepository) -> HoldingMatrix:
             col_totals[h.관리파트] = col_totals.get(h.관리파트, 0) + 1
         else:
             unassigned += 1
+            unassigned_by_species[h.마종] = unassigned_by_species.get(h.마종, 0) + 1
+            rkey = (h.마종, h.상태 or "미상")
+            unassigned_reasons[rkey] = unassigned_reasons.get(rkey, 0) + 1
 
     return HoldingMatrix(
         species_list=HORSE_SPECIES,
@@ -78,4 +85,6 @@ def build_holding_matrix(as_of: date, repo: HorseRepository) -> HoldingMatrix:
         col_totals=col_totals,
         grand_total=len(held),
         unassigned_count=unassigned,
+        unassigned_by_species=unassigned_by_species,
+        unassigned_reasons=unassigned_reasons,
     )

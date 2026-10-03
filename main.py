@@ -22,6 +22,7 @@ from ui import racing_page  # noqa: F401
 from ui import profile_page  # noqa: F401
 from ui import budget_compare_page  # noqa: F401         # 추가
 from ui import staff_page  # noqa: F401                  # 추가
+from ui import holding_page  # noqa: F401
 from ui.budget_api import router as budget_api_router    # 추가 (API)
 from ui.theme import apply_global_theme
 
