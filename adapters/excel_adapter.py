@@ -420,7 +420,7 @@ def _clean_int(value: Any) -> Optional[int]:
 
 
 def _parse_dates(value: Any) -> list[date]:
-    """셀 하나에서 날짜 1개 이상 파싱. '2025-01-24 / 2025-06-23' 형태 지원."""
+    """셀 하나에서 날짜 1개 이상 파싱. YYMMDD 및 슬래시 구분 복수 날짜 지원."""
     if _is_missing(value):
         return []
     if isinstance(value, pd.Timestamp):
@@ -429,6 +429,7 @@ def _parse_dates(value: Any) -> list[date]:
         return [value.date()]
     if isinstance(value, date):
         return [value]
+
     text = _clean_str(value)
     if not text:
         return []
@@ -438,12 +439,29 @@ def _parse_dates(value: Any) -> list[date]:
         part = part.strip()
         if not part:
             continue
+
+        # YYMMDD 형식 지원. 예: 260201 또는 엑셀 숫자 셀의 260201.0
+        compact = re.fullmatch(r"(\d{2})(\d{2})(\d{2})(?:\.0+)?", part)
+        if compact:
+            try:
+                dates.append(
+                    date(
+                        2000 + int(compact.group(1)),
+                        int(compact.group(2)),
+                        int(compact.group(3)),
+                    )
+                )
+            except ValueError:
+                pass
+            continue
+
         for fmt in _DATE_FORMATS:
             try:
                 dates.append(datetime.strptime(part, fmt).date())
                 break
             except ValueError:
                 continue
+
     return dates
 
 
