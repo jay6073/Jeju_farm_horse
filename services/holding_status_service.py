@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from config.constants import HORSE_DUTY_PARTS
@@ -67,6 +67,7 @@ class HoldingMatrix:
     unassigned_count: int    # 보유 중인데 관리파트 미지정인 두수
     unassigned_by_species: dict[str, int]  # 추가: 마종 -> 미지정 두수
     unassigned_reasons: dict[tuple[str, str], int]  # 추가: (마종, 상태) -> 두수
+    horses: list[Horse] = field(default_factory=list)  # 기준일 시점 보유 말 목록
 
 
 def build_holding_matrix(as_of: date, repo: HorseRepository) -> HoldingMatrix:
@@ -106,4 +107,5 @@ def build_holding_matrix(as_of: date, repo: HorseRepository) -> HoldingMatrix:
         unassigned_count=unassigned,
         unassigned_by_species=unassigned_by_species,
         unassigned_reasons=unassigned_reasons,
+        horses=held,
     )
