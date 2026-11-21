@@ -306,6 +306,26 @@ class HorseRepository:
                 rows = cur.fetchall()
                 return [_row_to_horse(r) for r in rows]
 
+    def get_all_with_entrustment_dates(self) -> list[tuple[Horse, date | None]]:
+        """전체 말과 위수탁 계약 입사일을 함께 조회한다."""
+        with _get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    SELECT h.*, e.farm_in_date
+                    FROM horses AS h
+                    LEFT JOIN entrustment AS e
+                      ON e.horse_id = h.마번
+                    ORDER BY h.마종, h.마명
+                    """
+                )
+                rows = cur.fetchall()
+
+        return [
+            (_row_to_horse(row), row["farm_in_date"])
+            for row in rows
+        ]
+
     def count_active_by_species(self) -> dict[str, int]:
         counts = {species: 0 for species in HORSE_SPECIES}
         with _get_connection() as conn:

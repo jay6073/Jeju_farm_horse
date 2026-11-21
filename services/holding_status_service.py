@@ -30,14 +30,29 @@ def _parse_date(value) -> date | None:
         return None
 
 
-def is_held_as_of(horse: Horse, as_of: date) -> bool:
-    """horse가 as_of 시점에 보유 중이었는지 (horses.상태만으로 판정)."""
+def is_held_as_of(
+    horse: Horse,
+    as_of: date,
+    entrustment_in_date: date | None = None,
+) -> bool:
+    """기준일에 말이 보유 중인지 판정한다."""
+
+    # 위수탁마의 입사일이 기준일보다 나중이면 아직 보유하지 않은 상태
+    if (
+        horse.마종 == "위수탁마"
+        and entrustment_in_date is not None
+        and as_of < entrustment_in_date
+    ):
+        return False
+
     if horse.상태 == STATUS_NORMAL:
         return True
+
     changed = _parse_date(horse.상태발생일자)
     if changed is None:
-        # 비정상 상태인데 발생일자가 없는 데이터 — 보유하지 않은 것으로 간주
         return False
+
+    # 상태발생일 당일부터 보유 제외
     return as_of < changed
 
 
@@ -55,8 +70,12 @@ class HoldingMatrix:
 
 
 def build_holding_matrix(as_of: date, repo: HorseRepository) -> HoldingMatrix:
-    all_horses = repo.get_all()
-    held = [h for h in all_horses if is_held_as_of(h, as_of)]
+    all_horses = repo.get_all_with_entrustment_dates()
+    held = [
+        horse
+        for horse, entrustment_in_date in all_horses
+        if is_held_as_of(horse, as_of, entrustment_in_date)
+    ]
 
     counts: dict[tuple[str, str], int] = {}
     row_totals = {s: 0 for s in HORSE_SPECIES}
